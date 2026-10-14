@@ -13,6 +13,10 @@ import {
   UpdateTaskInput,
   byPosition,
   computeFocus,
+  dayKey,
+  formatDay,
+  planDayOf,
+  shownDayOf,
   type AgentState,
   type DoneLogPage,
   type Focus,
@@ -35,6 +39,14 @@ type Patch = Partial<Omit<TaskRow, 'id' | 'createdAt'>>;
 const KEY_WORDS: Principal = { kind: 'owner', via: 'helm' };
 
 const NOTES_MAX = 20_000;
+
+/**
+ * Where the request comes from. `timeZone` (IANA, from the app) says which day "today" is for
+ * the user; without it the server's own zone is used.
+ */
+export interface Where {
+  timeZone?: string;
+}
 
 export class TaskService {
   constructor(private readonly ctx: ServiceContext) {}
@@ -83,8 +95,8 @@ export class TaskService {
       .sort(byPosition);
   }
 
-  focus(p: Principal): Focus {
-    return computeFocus(this.board(p));
+  focus(p: Principal, where: Where = {}): Focus {
+    return computeFocus(this.board(p), this.today(where), where.timeZone);
   }
 
   /** Completed tasks, newest first. */
@@ -132,7 +144,7 @@ export class TaskService {
 
   // ---------- Writes ----------
 
-  create(p: Principal, input: unknown): Task {
+  create(p: Principal, input: unknown, where: Where = {}): Task {
     const i = parse(CreateTaskInput, input);
     return mutate(this.ctx, p, (tx, emit) => {
       let projectId = i.projectId ?? null;
@@ -152,10 +164,12 @@ export class TaskService {
       }
       assertWrite(p, projectId);
 
-      const today = i.today ?? null;
+      // A day without a slot plans it as Secondary.
+      const today = i.today ?? (i.planDate ? 'side' : null);
       if (today && parent) throw invalid('Only top-level tasks go on Today.');
       if (i.todayOnly && !today) throw invalid('A Today-only task needs a place on Today: main or side.');
-      if (today === 'main') this.assertRoomInMain(tx);
+      const planDate = today ? (i.planDate ?? this.today(where)) : null;
+      if (today === 'main') this.assertRoomInMain(tx, planDate!, where);
 
       const depth = parent ? this.depthOf(tx, parent) + 1 : 0;
       if (i.subtasks?.length && depth + 1 > this.ctx.rules.maxSubtaskDepth) {
@@ -170,6 +184,7 @@ export class TaskService {
         parentTaskId: string | null;
         handOff?: boolean;
         today?: TodaySlot | null;
+        planDate?: string | null;
         todayOnly?: boolean;
       }) => {
         const now = this.ctx.now();
@@ -189,6 +204,7 @@ export class TaskService {
             agentState: values.handOff ? (i.agentState ?? null) : null,
             today: values.today ?? null,
             todayAt: values.today ? now : null,
+            planDate: values.today ? (values.planDate ?? null) : null,
             todayOnly: values.todayOnly ?? false,
             createdAt: now,
             updatedAt: now,
@@ -199,7 +215,7 @@ export class TaskService {
         return row;
       };
 
-      const row = insert({ ...i, parentTaskId: parent?.id ?? null, handOff: true, today, todayOnly: i.todayOnly });
+      const row = insert({ ...i, parentTaskId: parent?.id ?? null, handOff: true, today, planDate, todayOnly: i.todayOnly });
       for (const sub of i.subtasks ?? []) insert({ title: sub.title, estimateMinutes: sub.estimateMinutes, parentTaskId: row.id });
 
       // A done parent can't have open subtasks.
@@ -208,7 +224,7 @@ export class TaskService {
     });
   }
 
-  update(p: Principal, id: string, input: unknown): Task {
+  update(p: Principal, id: string, input: unknown, where: Where = {}): Task {
     const patch = parse(UpdateTaskInput, input);
     return mutate(this.ctx, p, (tx, emit) => {
       let row = this.getRow(tx, id);
@@ -233,15 +249,23 @@ export class TaskService {
         this.checkProjectChange(tx, p, row, patch.projectId);
         fields.projectId = patch.projectId;
       }
-      if (patch.today !== undefined && patch.today !== row.today) {
-        if (row.parentTaskId) throw invalid('Only top-level tasks go on Today.');
-        if (patch.today && row.status === 'done') throw invalid('This task is already done.');
-        if (patch.today === 'main') this.assertRoomInMain(tx);
-        fields.today = patch.today;
-        // Moving between main and side keeps the day it was planned for.
-        fields.todayAt = patch.today === null ? null : row.today ? row.todayAt : this.ctx.now();
-        // Taken off Today, a Today-only task joins its board instead of vanishing.
-        if (patch.today === null && row.todayOnly) fields.todayOnly = false;
+      if (patch.today !== undefined || patch.planDate !== undefined) {
+        // A day without a slot keeps the slot it has, or plans it as Secondary.
+        const slot = patch.today !== undefined ? patch.today : (row.today ?? 'side');
+        const wasDay = planDayOf(row, where.timeZone);
+        // Moving between main and side keeps the day it was planned for (even a past one).
+        const day = slot === null ? null : (patch.planDate ?? wasDay ?? this.today(where));
+        const moved = day !== wasDay;
+        if (slot !== row.today || moved) {
+          if (row.parentTaskId) throw invalid('Only top-level tasks go on Today.');
+          if (slot && row.status === 'done') throw invalid('This task is already done.');
+          if (slot === 'main' && (row.today !== 'main' || moved)) this.assertRoomInMain(tx, day!, where, row.id);
+          fields.today = slot;
+          fields.planDate = day;
+          fields.todayAt = slot === null ? null : row.today && !moved ? row.todayAt : this.ctx.now();
+          // Taken off Today, a Today-only task joins its board instead of vanishing.
+          if (slot === null && row.todayOnly) fields.todayOnly = false;
+        }
       }
 
       if (Object.keys(fields).length > 0) {
@@ -486,15 +510,27 @@ export class TaskService {
     return updated;
   }
 
-  /** Main is for the few things that make the day; done ones don't count. */
-  private assertRoomInMain(tx: Tx): void {
+  /** The user's today, `YYYY-MM-DD`. */
+  private today(where: Where): string {
+    return dayKey(this.ctx.now(), where.timeZone);
+  }
+
+  /**
+   * Main is for the few things that make a day; done ones don't count. Tasks carried over from
+   * earlier days count towards today's.
+   */
+  private assertRoomInMain(tx: Tx, day: string, where: Where, except?: string): void {
+    const today = this.today(where);
+    const shown = day < today ? today : day;
     const open = tx
-      .select({ id: tasks.id })
+      .select()
       .from(tasks)
       .where(and(eq(tasks.today, 'main'), ne(tasks.status, 'done'), isNull(tasks.deletedAt)))
-      .all().length;
+      .all()
+      .filter((r) => r.id !== except && shownDayOf(r, today, where.timeZone) === shown).length;
     if (open >= MAX_TODAY_MAIN) {
-      throw new HelmError('conflict', `Today already has ${MAX_TODAY_MAIN} main tasks. Move one to secondary first.`);
+      const name = shown === today ? 'Today' : formatDay(shown, { weekday: 'long', day: 'numeric', month: 'short' }, 'en-GB');
+      throw new HelmError('conflict', `${name} already has ${MAX_TODAY_MAIN} main tasks. Move one to secondary first.`);
     }
   }
 

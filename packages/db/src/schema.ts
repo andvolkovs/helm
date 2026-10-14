@@ -43,6 +43,9 @@ export const tasks = sqliteTable(
     today: text('today', { enum: ['main', 'side'] }),
     /** When it went on Today; older than the start of today = carried over. */
     todayAt: ts('today_at'),
+    /** The day it's planned for (`YYYY-MM-DD`, the user's own calendar). Later than today = planned
+     *  ahead; earlier = carried over. null on tasks from before planning ahead existed. */
+    planDate: text('plan_date'),
     /** Added straight to Today: kept off the board. */
     todayOnly: integer('today_only', { mode: 'boolean' }).notNull().default(false),
     /** Words of the title to show in bold (JSON array); null = not picked yet. */

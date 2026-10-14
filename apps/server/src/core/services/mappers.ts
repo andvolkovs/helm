@@ -24,6 +24,7 @@ export function toTask(r: TaskRow): Task {
     agentClaimedBy: r.agentClaimedBy ?? null,
     today: r.today ?? null,
     todayAt: iso(r.todayAt),
+    planDate: r.planDate ?? null,
     todayOnly: r.todayOnly,
     keyWords: r.keyWords ?? null,
   };

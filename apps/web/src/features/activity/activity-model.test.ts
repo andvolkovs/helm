@@ -65,6 +65,12 @@ describe('describeEntry', () => {
     const main = { ...b, today: 'main' as const, todayAt: '2026-09-29T08:00:00Z' };
     expect(texts(entry([change('updated', b, main)]))).toEqual([['Put “Budget” on Today as a main task', 0]]);
     expect(texts(entry([change('updated', main, { ...main, today: 'side' })]))).toEqual([['Made “Budget” secondary on Today', 0]]);
+    const thursday = { ...main, planDate: '2026-10-01' };
+    // Day names follow the device's locale ("Thu 1 Oct", "Thu, 1 Oct", …).
+    expect(texts(entry([change('updated', b, thursday)]))[0]![0]).toMatch(/^Planned “Budget” for Thu\W+1 Oct as a main task$/);
+    expect(texts(entry([change('updated', thursday, { ...thursday, planDate: '2026-10-02' })]))[0]![0]).toMatch(
+      /^Moved “Budget” to Fri\W+2 Oct$/,
+    );
     expect(texts(entry([change('updated', main, b)]))).toEqual([['Took “Budget” off Today', 0]]);
     const parcel = task({ id: 'Parcel', today: 'side', todayOnly: true });
     expect(texts(entry([change('created', null, parcel)]))).toEqual([['Added “Parcel” to Today', 0]]);

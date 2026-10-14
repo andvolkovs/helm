@@ -404,3 +404,94 @@ describe('Today', () => {
     expect(services.tasks.get(o, t.id)).toMatchObject({ today: 'main', todayAt: t.todayAt });
   });
 });
+
+describe('Planning days ahead', () => {
+  // The test clock starts on 23 September 2026, 09:00 UTC.
+  const utc = { timeZone: 'UTC' };
+
+  it('plans a task for a later day, as Secondary unless it says Main', () => {
+    const { services } = setup();
+    const a = services.tasks.create(o, { title: 'Slides', planDate: '2026-09-25' }, utc);
+    expect(a).toMatchObject({ today: 'side', planDate: '2026-09-25' });
+    const b = services.tasks.create(o, { title: 'Gate', today: 'main', planDate: '2026-09-25' }, utc);
+    expect(b).toMatchObject({ today: 'main', planDate: '2026-09-25' });
+    // No day given: today, in the user's own zone.
+    expect(services.tasks.create(o, { title: 'Now', today: 'side' }, utc).planDate).toBe('2026-09-23');
+    expect(errCode(() => services.tasks.create(o, { title: 'x', planDate: '2026-02-30' }, utc))).toBe('invalid');
+  });
+
+  it('counts today in the user’s time zone', () => {
+    const { services, clock } = setup();
+    clock.set('2026-09-23T23:30:00.000Z');
+    const late = services.tasks.create(o, { title: 'Late', today: 'side' }, { timeZone: 'Pacific/Auckland' });
+    expect(late.planDate).toBe('2026-09-24');
+  });
+
+  it('allows three main tasks per day; carried-over ones count for today', () => {
+    const { services } = setup();
+    const main = (title: string, planDate?: string) => services.tasks.create(o, { title, today: 'main', planDate }, utc);
+    for (const n of [1, 2, 3]) main(`Fri ${n}`, '2026-09-25');
+    expect(errCode(() => main('Fri 4', '2026-09-25'))).toBe('conflict');
+    expect(main('Sat', '2026-09-26').today).toBe('main');
+
+    main('Monday’s', '2026-09-21');
+    main('Tuesday’s', '2026-09-22');
+    main('Today’s');
+    expect(errCode(() => main('One more'))).toBe('conflict');
+  });
+
+  it('moves tasks between days, keeping the slot, and checks room in Main there', () => {
+    const { services } = setup();
+    const t = services.tasks.create(o, { title: 'Invoice', today: 'main', planDate: '2026-09-24' }, utc);
+    const moved = services.tasks.update(o, t.id, { planDate: '2026-09-25' }, utc);
+    expect(moved).toMatchObject({ today: 'main', planDate: '2026-09-25' });
+    expect(moved.todayAt! > t.todayAt!).toBe(true);
+
+    for (const n of [1, 2, 3]) services.tasks.create(o, { title: `Sat ${n}`, today: 'main', planDate: '2026-09-26' }, utc);
+    expect(errCode(() => services.tasks.update(o, t.id, { planDate: '2026-09-26' }, utc))).toBe('conflict');
+    expect(services.tasks.update(o, t.id, { today: 'side', planDate: '2026-09-26' }, utc)).toMatchObject({
+      today: 'side',
+      planDate: '2026-09-26',
+    });
+
+    // A day for a task that wasn't planned puts it on as Secondary.
+    const loose = services.tasks.create(o, { title: 'Loose' }, utc);
+    expect(services.tasks.update(o, loose.id, { planDate: '2026-09-27' }, utc)).toMatchObject({
+      today: 'side',
+      planDate: '2026-09-27',
+    });
+    expect(services.tasks.update(o, loose.id, { today: null }, utc)).toMatchObject({
+      today: null,
+      planDate: null,
+      todayAt: null,
+    });
+  });
+
+  it('keeps a carried-over task’s day when it moves between main and side', () => {
+    const { services } = setup();
+    const t = services.tasks.create(o, { title: 'Passport', today: 'main', planDate: '2026-09-22' }, utc);
+    expect(services.tasks.update(o, t.id, { today: 'side' }, utc)).toMatchObject({
+      today: 'side',
+      planDate: '2026-09-22',
+      todayAt: t.todayAt,
+    });
+  });
+
+  it('leaves main tasks planned for later out of Focus', () => {
+    const { services } = setup();
+    services.tasks.create(o, { title: 'Friday', today: 'main', planDate: '2026-09-25', priority: 'someday' }, utc);
+    const today = services.tasks.create(o, { title: 'Today', today: 'main', priority: 'someday' }, utc);
+    const f = services.tasks.focus(o, utc);
+    expect(f.upNext?.id).toBe(today.id);
+    expect(f.now).toEqual([]);
+  });
+
+  it('undo puts a task back on the day it was planned for', () => {
+    const { services } = setup();
+    const t = services.tasks.create(o, { title: 'Budget', planDate: '2026-09-24' }, utc);
+    services.tasks.update(o, t.id, { planDate: '2026-09-26' }, utc);
+    const [latest] = services.activity.list(o, {}).entries;
+    services.activity.undo(o, latest!.batchId);
+    expect(services.tasks.get(o, t.id)).toMatchObject({ today: 'side', planDate: '2026-09-24' });
+  });
+});

@@ -1,7 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
-import type { Task, TaskNode } from '@helm/shared';
+import { formatDay, shownDayOf, type Task, type TaskNode } from '@helm/shared';
 import { formatMinutes } from '../../lib/format.ts';
 import { KeyedTitle } from '../../ui/KeyedTitle.tsx';
 import { agentBadge } from './agent-badge.ts';
@@ -15,6 +15,8 @@ export interface CardActions {
   onToggleWork: (task: TaskNode) => void;
   /** The ☀ button: put the task on Today, or take it off. */
   onToggleToday?: (task: TaskNode) => void;
+  /** Today, `YYYY-MM-DD`: the ☀ button names the day of a task planned for later. */
+  today?: string;
 }
 
 /** In progress itself, or one of its subtasks is. */
@@ -41,6 +43,7 @@ export function TaskCard({
   onComplete,
   onToggleSubtask,
   onToggleToday,
+  today,
   lead,
   meta,
   end,
@@ -49,6 +52,8 @@ export function TaskCard({
   const [open, setOpen] = useState(false);
   const active = isWorking(task);
   const agent = agentBadge(task);
+  const shown = today ? shownDayOf(task, today) : null;
+  const later = shown && today && shown > today ? shown : null;
 
   return (
     <article className={`card ${active ? 'is-active' : ''} ${overlay ? 'is-overlay' : ''} ${className ?? ''}`}>
@@ -105,15 +110,33 @@ export function TaskCard({
       {end}
       {onToggleToday && (
         <button
-          className={`card-sun${task.today ? ' is-on' : ''}`}
+          className={`card-sun${task.today ? ' is-on' : ''}${later ? ' is-later' : ''}`}
           aria-pressed={Boolean(task.today)}
-          aria-label={task.today ? `On Today (${task.today === 'main' ? 'main' : 'secondary'}). Take off Today` : 'Add to Today'}
-          title={task.today ? 'On Today. Click to take it off' : 'Add to Today'}
+          aria-label={
+            later
+              ? `Planned for ${formatDay(later, { weekday: 'long' })}. Take it off the plan`
+              : task.today
+                ? `On Today (${task.today === 'main' ? 'main' : 'secondary'}). Take off Today`
+                : 'Add to Today'
+          }
+          title={
+            later
+              ? `Planned for ${formatDay(later, { weekday: 'long', day: 'numeric', month: 'short' })}. Click to take it off`
+              : task.today
+                ? 'On Today. Click to take it off'
+                : 'Add to Today'
+          }
           onClick={() => onToggleToday(task)}
           tabIndex={overlay ? -1 : 0}
         >
-          <SunIcon />
-          {task.today === 'main' && <span className="card-sun-main">Main</span>}
+          {later ? (
+            <span className="card-sun-main">{formatDay(later, { weekday: 'short' })}</span>
+          ) : (
+            <>
+              <SunIcon />
+              {task.today === 'main' && <span className="card-sun-main">Main</span>}
+            </>
+          )}
         </button>
       )}
     </article>

@@ -36,6 +36,15 @@ export class ApiError extends Error {
 }
 
 /** `body` is sent as JSON, except a Blob, which goes as is with its own type (audio). */
+/** Tells the server which day "today" is here (see `timeZoneOf` on the server). */
+const ZONE = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+})();
+
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   let res: Response;
   const raw = body instanceof Blob;
@@ -43,7 +52,10 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     res = await fetch(`/api/v1${path}`, {
       method,
       credentials: 'same-origin',
-      headers: body === undefined ? undefined : { 'content-type': raw ? body.type : 'application/json' },
+      headers: {
+        ...(ZONE ? { 'x-time-zone': ZONE } : {}),
+        ...(body === undefined ? {} : { 'content-type': raw ? body.type : 'application/json' }),
+      },
       body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       signal,
     });

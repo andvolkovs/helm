@@ -1,29 +1,18 @@
-import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import {
-  buildTree,
-  MAX_TODAY_MAIN,
-  parseQuickAdd,
-  projectCandidates,
-  type Project,
-  type Task,
-  type TaskNode,
-  type TodaySlot,
-} from '@helm/shared';
-import { api } from '../../lib/api.ts';
+import { useMemo, useState } from 'react';
+import { buildTree, dayKey, MAX_TODAY_MAIN, type Project, type Task, type TaskNode, type TodaySlot } from '@helm/shared';
 import { formatMinutes } from '../../lib/format.ts';
-import { upsertTask, useAllProjects, useDoneLog, useProjects, useSetToday, useTaskAction, useTasks } from '../../lib/queries.ts';
+import { useAllProjects, useDoneLog, useSetToday, useTaskAction, useTasks } from '../../lib/queries.ts';
 import { hrefFor } from '../../lib/route.ts';
 import { useCompleteTask } from '../../lib/useCompleteTask.ts';
 import { useDeleteTask } from '../../lib/useDeleteTask.ts';
 import { useNow } from '../../lib/useNow.ts';
-import { LineInput } from '../../ui/LineInput.tsx';
 import { useToast } from '../../ui/Toast.tsx';
 import { projectIcon } from '../board/project-icon.ts';
 import { isWorking, TaskCard } from '../board/TaskCard.tsx';
 import { useSwipe } from '../board/useSwipe.ts';
 import { useEditor } from '../task-editor/EditorContext.tsx';
 import { PickSheet } from './PickSheet.tsx';
+import { PlanAdd } from './PlanAdd.tsx';
 import { carriedFrom, doneToday, minutesLeft, startOfDay, todayLists } from './today-model.ts';
 import '../board/board.css';
 import './today.css';
@@ -40,6 +29,7 @@ export function TodayView() {
   const projects = useAllProjects();
   const now = new Date(useNow(60_000));
   const since = startOfDay(now).toISOString();
+  const todayKey = dayKey(now);
   const doneLog = useDoneLog({ from: since });
   const setToday = useSetToday();
   const action = useTaskAction();
@@ -50,7 +40,7 @@ export function TodayView() {
   const [picking, setPicking] = useState(false);
 
   const roots = useMemo(() => buildTree(tasks.data ?? []), [tasks.data]);
-  const { main, side } = useMemo(() => todayLists(roots), [roots]);
+  const { main, side } = useMemo(() => todayLists(roots, todayKey), [roots, todayKey]);
   const done = useMemo(
     () => doneToday(tasks.data ?? [], doneLog.data?.pages.flatMap((p) => p.tasks) ?? [], now),
     // `since` changes at midnight, which is when the list should start over.
@@ -81,6 +71,7 @@ export function TodayView() {
       return;
     }
     const was = t.today!;
+    const wasDay = t.planDate ?? undefined;
     const place = t.projectId ? (projectMap.get(t.projectId)?.name ?? 'its project') : 'the Inbox';
     setToday.mutate(
       { id: t.id, today: null },
@@ -88,7 +79,7 @@ export function TodayView() {
         onSuccess: () =>
           toast({
             message: `Off Today. Still in ${place}.`,
-            action: { label: 'Undo', run: () => setToday.mutate({ id: t.id, today: was }) },
+            action: { label: 'Undo', run: () => setToday.mutate({ id: t.id, today: was, planDate: wasDay }) },
           }),
       },
     );
@@ -171,7 +162,7 @@ export function TodayView() {
         )}
       </section>
 
-      <TodayAdd mainFull={mainFull} mainEmpty={main.length === 0} projects={projects.data ?? []} />
+      <PlanAdd dayName="today" mainFull={mainFull} mainEmpty={main.length === 0} projects={projects.data ?? []} />
       <button type="button" className="btn today-pick" onClick={() => setPicking(true)}>
         Pick from the board
       </button>
@@ -199,7 +190,9 @@ export function TodayView() {
         </details>
       )}
 
-      {picking && <PickSheet roots={roots} mainFull={mainFull} onClose={() => setPicking(false)} />}
+      {picking && (
+        <PickSheet roots={roots} day={todayKey} today={todayKey} mainFull={mainFull} onClose={() => setPicking(false)} />
+      )}
     </main>
   );
 }
@@ -285,85 +278,5 @@ function TodayRow({ task, number, project, carried, canPromote, ...on }: RowProp
         />
       </div>
     </li>
-  );
-}
-
-// Buttons next to the field mustn't take focus from it: that would drop the phone keyboard.
-const keepFocus = (e: { preventDefault: () => void }) => e.preventDefault();
-
-/**
- * "Add to today": a Today-only task, unless `#project` puts it on that project's board too.
- * Enter adds it and keeps the field open for the next one.
- */
-function TodayAdd({ mainFull, mainEmpty, projects }: { mainFull: boolean; mainEmpty: boolean; projects: Project[] }) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const liveProjects = useProjects();
-  const [text, setText] = useState('');
-  // Planning the morning starts with the main things.
-  const [slot, setSlot] = useState<TodaySlot>(mainEmpty ? 'main' : 'side');
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (mainFull) setSlot('side');
-  }, [mainFull]);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    const typed = text.trim();
-    if (!typed) return;
-    const parsed = parseQuickAdd(typed);
-    const hits = parsed.projectQuery ? projectCandidates(parsed.projectQuery, liveProjects.data ?? projects) : [];
-    const project = hits.length === 1 ? hits[0]! : null;
-    // A #name that isn't one project stays part of the title.
-    const title = parsed.projectQuery && !project ? `${parsed.title} #${parsed.projectQuery}`.trim() : parsed.title;
-    if (!title) return;
-    const to: TodaySlot = slot === 'main' && mainFull ? 'side' : slot;
-    setText('');
-    inputRef.current?.focus();
-    try {
-      const task = await api.createTask({
-        title,
-        projectId: project?.id ?? null,
-        priority: parsed.priority ?? undefined,
-        estimateMinutes: parsed.estimateMinutes ?? undefined,
-        today: to,
-        todayOnly: !project,
-      });
-      upsertTask(qc, task);
-      if (project) toast({ message: `Added to Today and ${project.name}.` });
-    } catch (err) {
-      setText((now) => now || typed);
-      toast({ message: `Couldn’t add “${title}”: ${(err as Error).message}` });
-    }
-  }
-
-  return (
-    <form className="today-add" onSubmit={submit} autoComplete="off">
-      <LineInput
-        ref={inputRef}
-        className="today-add-input"
-        aria-label="Add to today"
-        placeholder="Add to today…"
-        enterKeyHint="enter"
-        maxLength={500}
-        value={text}
-        onValueChange={setText}
-      />
-      <button
-        type="button"
-        className={`today-add-slot${slot === 'main' ? ' is-main' : ''}`}
-        onMouseDown={keepFocus}
-        onClick={() => (slot === 'side' && mainFull ? toast({ message: MAIN_FULL }) : setSlot(slot === 'main' ? 'side' : 'main'))}
-        aria-label={`Adds to ${slot === 'main' ? 'Main' : 'Secondary'}. Switch`}
-        title="Main or Secondary"
-      >
-        {slot === 'main' ? 'Main' : '2nd'}
-      </button>
-      <button type="submit" className="today-add-send" onMouseDown={keepFocus} disabled={!text.trim()} aria-label="Add">
-        ↵
-      </button>
-      <p className="today-add-hint">Lives only on Today. Add #project to put it on that board too.</p>
-    </form>
   );
 }

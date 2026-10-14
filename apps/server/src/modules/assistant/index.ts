@@ -12,7 +12,7 @@ import { stream } from 'hono/streaming';
 import { ASSISTANT, assertOwner, type Principal } from '../../core/auth/principal.ts';
 import { HelmError, parse } from '../../core/errors.ts';
 import type { Services } from '../../core/services/index.ts';
-import type { AppEnv } from '../../http/env.ts';
+import { timeZoneOf, type AppEnv } from '../../http/env.ts';
 import type { HelmModule } from '../module.ts';
 import { chatReply } from './chat.ts';
 import { suggestOrder } from './prioritize.ts';
@@ -20,12 +20,13 @@ import { buildSnapshot, today } from './snapshot.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function snapshotFor(services: Services, p: Principal, now: Date) {
+function snapshotFor(services: Services, p: Principal, now: Date, timeZone?: string) {
   return buildSnapshot(
     services.tasks.board(p),
     services.projects.list(p),
     services.tasks.doneLog(p, { from: new Date(now.getTime() - 7 * DAY).toISOString(), limit: 30 }).tasks,
     now,
+    timeZone,
   );
 }
 
@@ -64,7 +65,7 @@ export const assistantModule: HelmModule = {
       if (!llm) throw new HelmError('unavailable', providers.reasons.llm ?? 'The assistant is off.');
       return llm;
     };
-    const tz = (c: Context<AppEnv>) => c.req.query('tz') || undefined;
+    const tz = (c: Context<AppEnv>) => timeZoneOf(c);
 
     api.get('/assistant', (c) => {
       assertOwner(c.var.principal);
@@ -79,7 +80,7 @@ export const assistantModule: HelmModule = {
       const now = new Date();
       try {
         return c.json(
-          await suggestOrder(model, snapshotFor(services, p, now), {
+          await suggestOrder(model, snapshotFor(services, p, now, tz(c)), {
             today: today(now, tz(c)),
             inProgressLimit,
             signal: c.req.raw.signal,
@@ -98,7 +99,7 @@ export const assistantModule: HelmModule = {
       const { messages } = parse(AssistantChatInput, await c.req.json().catch(() => null));
       if (messages.at(-1)?.role !== 'user') throw new HelmError('invalid', 'The last message must be from the user.');
       const now = new Date();
-      const snapshot = snapshotFor(services, p, now);
+      const snapshot = snapshotFor(services, p, now, tz(c));
 
       c.header('content-type', 'application/x-ndjson; charset=utf-8');
       c.header('cache-control', 'no-cache');

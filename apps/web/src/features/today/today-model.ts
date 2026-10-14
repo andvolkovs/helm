@@ -1,27 +1,25 @@
-import type { Task, TaskNode } from '@helm/shared';
+import { dayKey, daysBetween, formatDay, shownDayOf, type Task, type TaskNode } from '@helm/shared';
 
 export const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
 /** In the order they went on Today. */
 const byPlanned = (a: Task, b: Task) => (a.todayAt ?? '').localeCompare(b.todayAt ?? '') || a.id.localeCompare(b.id);
 
-/** Open tasks on Today, split into main and side. */
-export function todayLists(roots: readonly TaskNode[]): { main: TaskNode[]; side: TaskNode[] } {
-  const open = roots.filter((t) => t.today && t.status !== 'done' && !t.deletedAt).sort(byPlanned);
+/** Open tasks on Today (`today` = `YYYY-MM-DD`), split into main and side. Ones planned for later days stay out. */
+export function todayLists(roots: readonly TaskNode[], today: string): { main: TaskNode[]; side: TaskNode[] } {
+  const open = roots.filter((t) => t.status !== 'done' && !t.deletedAt && shownDayOf(t, today) === today).sort(byPlanned);
   return { main: open.filter((t) => t.today === 'main'), side: open.filter((t) => t.today === 'side') };
 }
 
 /** For a task still on Today from an earlier day: "yesterday", "Monday" or "29 Sep". */
-export function carriedFrom(t: Pick<Task, 'todayAt'>, now: Date): string | null {
-  if (!t.todayAt) return null;
-  const at = new Date(t.todayAt);
-  const start = startOfDay(now);
-  if (at >= start) return null;
-  // Rounded: a day with a clock change is 23 or 25 hours long.
-  const days = Math.round((start.getTime() - startOfDay(at).getTime()) / 86_400_000);
+export function carriedFrom(t: Pick<Task, 'todayAt' | 'planDate'>, now: Date): string | null {
+  const day = t.planDate ?? (t.todayAt ? dayKey(new Date(t.todayAt)) : null);
+  const today = dayKey(now);
+  if (!day || day >= today) return null;
+  const days = daysBetween(day, today);
   if (days <= 1) return 'yesterday';
-  if (days < 7) return at.toLocaleDateString([], { weekday: 'long' });
-  return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  if (days < 7) return formatDay(day, { weekday: 'long' });
+  return formatDay(day, { day: 'numeric', month: 'short' });
 }
 
 /**

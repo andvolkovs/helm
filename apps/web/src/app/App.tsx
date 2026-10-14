@@ -10,6 +10,7 @@ import { SettingsView } from '../features/settings/SettingsView.tsx';
 import { EditorProvider, useEditor } from '../features/task-editor/EditorContext.tsx';
 import { TimerChip } from '../features/timer/TimerCard.tsx';
 import { TodayView } from '../features/today/TodayView.tsx';
+import { WeekView } from '../features/week/WeekView.tsx';
 import { TimerProvider } from '../features/timer/TimerContext.tsx';
 import { MicIcon, VoiceCapture } from '../features/voice/VoiceCapture.tsx';
 import { api, ApiError } from '../lib/api.ts';
@@ -29,6 +30,7 @@ const SYNC_LABEL: Record<SyncState, string> = {
 const NAV: { route: Route; label: string; key: string }[] = [
   { route: 'board', label: 'Board', key: 'b' },
   { route: 'today', label: 'Today', key: 't' },
+  { route: 'week', label: 'Week', key: 'w' },
   { route: 'focus', label: 'Focus', key: 'f' },
   { route: 'done', label: 'Done', key: 'd' },
 ];
@@ -139,7 +141,7 @@ function Shell({ sync }: { sync: SyncState }) {
     // Once, on launch.
   }, []);
 
-  // Single-key shortcuts: N new task, V voice, A assistant, B board, T today, F focus, D done
+  // Single-key shortcuts: N new task, V voice, A assistant, B board, T today, W week, F focus, D done
   // (not while typing or in a dialog).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -239,6 +241,8 @@ function Shell({ sync }: { sync: SyncState }) {
         <BoardView />
       ) : route === 'today' ? (
         <TodayView />
+      ) : route === 'week' ? (
+        <WeekView />
       ) : route === 'done' ? (
         <DoneView />
       ) : route === 'activity' ? (

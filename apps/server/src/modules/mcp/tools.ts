@@ -3,7 +3,11 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   AGENT_STATES,
   TODAY_SLOTS,
+  PlanDate,
   buildTree,
+  dayKey,
+  planDayOf,
+  shownDayOf,
   INBOX,
   PRIORITIES,
   projectCandidates,
@@ -28,6 +32,9 @@ const PriorityArg = z.enum(PRIORITIES).describe('now = doing today, soon = this 
 const TodayArg = z
   .enum(TODAY_SLOTS)
   .describe("The user's Today list: main = one of the (at most 3) things that make the day, side = if there's time");
+const PlanDateArg = PlanDate.describe(
+  'A day of the user’s plan, YYYY-MM-DD: the task goes on that day’s list (as side unless `today` says main). Today’s date plans it for today.',
+);
 const Minutes = z.number().int().min(1).max(1440);
 const Note = z.string().min(1).max(5000);
 
@@ -108,7 +115,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
     ...(t.completedAt ? { completedAt: t.completedAt } : {}),
     ...(t.agentState ? { agentState: t.agentState } : {}),
     ...(t.agentClaimedBy ? { claimedBy: t.agentClaimedBy.replace(/^token:/, '') } : {}),
-    ...(t.today ? { today: t.today, ...(t.todayOnly ? { todayOnly: true } : {}) } : {}),
+    ...(t.today ? { today: t.today, plannedFor: planDayOf(t), ...(t.todayOnly ? { todayOnly: true } : {}) } : {}),
     addedBy: t.source,
   });
 
@@ -172,6 +179,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
           .describe('ready = handed to agents and free to claim, working = claimed, review = waiting for the user'),
         query: z.string().max(200).optional().describe('Case-insensitive text to find in titles and notes'),
         today: z.boolean().optional().describe('true = only tasks on the user’s Today list (main and side)'),
+        planned_for: PlanDate.optional().describe('Only tasks planned for this day, YYYY-MM-DD'),
       },
       annotations: READ,
     },
@@ -181,13 +189,15 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
         const q = args.query?.toLowerCase();
         const rank = (x: Priority) => PRIORITIES.indexOf(x);
         const names = projectNames();
+        const today = dayKey(new Date());
         return buildTree(services.tasks.board(p))
           .filter((n) => n.status !== 'done')
           .filter((n) => projectId === undefined || n.projectId === projectId)
           .filter((n) => !args.priority || n.priority === args.priority)
           .filter((n) => !args.status || n.status === args.status)
           .filter((n) => !args.agent_state || n.agentState === args.agent_state)
-          .filter((n) => args.today === undefined || Boolean(n.today) === args.today)
+          .filter((n) => args.today === undefined || (shownDayOf(n, today) === today) === args.today)
+          .filter((n) => !args.planned_for || shownDayOf(n, today) === (args.planned_for < today ? today : args.planned_for))
           .filter((n) => !q || `${n.title}\n${n.notes ?? ''}`.toLowerCase().includes(q))
           .sort((a, b) => rank(a.priority) - rank(b.priority))
           .map((n) => nodeView(n, names));
@@ -271,6 +281,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
         for_agent: z.boolean().optional().describe('Hand it to agents straight away (agent_state "ready")'),
         allow_duplicate: z.boolean().optional().describe('Add it even if an open task has the same title'),
         today: TodayArg.optional(),
+        plan_date: PlanDateArg.optional(),
       },
       annotations: WRITE,
     },
@@ -305,6 +316,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
           subtasks: args.subtasks?.map((title) => ({ title })),
           agentState: args.for_agent ? 'ready' : undefined,
           today: args.today,
+          planDate: args.plan_date,
         });
         return withSubtasks(task);
       }),
@@ -323,6 +335,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
         estimate_minutes: Minutes.nullable().optional().describe('null clears the estimate'),
         project: ProjectArg.optional().describe('Move to this project ("Inbox" for none); subtasks follow'),
         today: TodayArg.nullable().optional().describe('Put on Today as main or side; null takes it off'),
+        plan_date: PlanDateArg.optional().describe('Move it to another day of the plan, YYYY-MM-DD'),
       },
       annotations: { ...WRITE, idempotentHint: true },
     },
@@ -335,6 +348,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
           ...(args.estimate_minutes !== undefined ? { estimateMinutes: args.estimate_minutes } : {}),
           ...(projectId !== undefined ? { projectId } : {}),
           ...(args.today !== undefined ? { today: args.today } : {}),
+          ...(args.plan_date !== undefined ? { planDate: args.plan_date } : {}),
         });
         return withSubtasks(task);
       }),

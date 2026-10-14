@@ -160,6 +160,7 @@ function Group({
                 onToggleSubtask={actions.onToggleSubtask}
                 onToggleWork={actions.onToggleWork}
                 onToggleToday={actions.onToggleToday}
+                today={actions.today}
               />
             ) : null;
           })}

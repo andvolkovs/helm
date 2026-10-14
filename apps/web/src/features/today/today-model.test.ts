@@ -39,7 +39,7 @@ describe('todayLists', () => {
       task({ id: 'done', today: 'main', todayAt: at(2), status: 'done' }),
       task({ id: 'board' }),
     ]);
-    const { main, side } = todayLists(roots);
+    const { main, side } = todayLists(roots, '2026-10-02');
     expect(main.map((t) => t.id)).toEqual(['a', 'b']);
     expect(side.map((t) => t.id)).toEqual(['s']);
   });

@@ -14,10 +14,11 @@ import {
 } from '@dnd-kit/core';
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { buildTree, PRIORITIES, type Priority, type Project, type Task, type TaskNode } from '@helm/shared';
+import { buildTree, PRIORITIES, shownDayOf, type Priority, type Project, type Task, type TaskNode } from '@helm/shared';
 import { useMoveTask, useProjects, useSetToday, useTaskAction, useTasks, useUpdateProject } from '../../lib/queries.ts';
 import { hrefFor } from '../../lib/route.ts';
 import { useCompleteTask } from '../../lib/useCompleteTask.ts';
+import { useToday } from '../../lib/useToday.ts';
 import { useToast } from '../../ui/Toast.tsx';
 import { useEditor } from '../task-editor/EditorContext.tsx';
 import {
@@ -61,6 +62,7 @@ export function BoardView() {
   const updateProject = useUpdateProject();
   const complete = useCompleteTask();
   const setToday = useSetToday();
+  const today = useToday();
   const editor = useEditor();
   const toast = useToast();
 
@@ -213,15 +215,20 @@ export function BoardView() {
     );
   }
 
-  /** ☀ on a card: onto Today under Secondary (with a shortcut to Main), or off again. */
+  /** ☀ on a card: onto Today under Secondary (with a shortcut to Main), or off the plan again. */
   function toggleToday(t: TaskNode) {
     const was = t.today;
     if (was) {
+      const wasDay = t.planDate ?? undefined;
+      const later = (shownDayOf(t, today) ?? today) > today;
       setToday.mutate(
         { id: t.id, today: null },
         {
           onSuccess: () =>
-            toast({ message: `Off Today: ${t.title}`, action: { label: 'Undo', run: () => setToday.mutate({ id: t.id, today: was }) } }),
+            toast({
+              message: `${later ? 'Off the plan' : 'Off Today'}: ${t.title}`,
+              action: { label: 'Undo', run: () => setToday.mutate({ id: t.id, today: was, planDate: wasDay }) },
+            }),
         },
       );
     } else {
@@ -244,6 +251,7 @@ export function BoardView() {
     onToggleSubtask: (s: Task) => action.mutate({ id: s.id, action: s.status === 'done' ? 'reopen' : 'complete' }),
     onToggleWork: toggleWork,
     onToggleToday: toggleToday,
+    today,
   };
 
   const groupsFor = (bin: string) =>

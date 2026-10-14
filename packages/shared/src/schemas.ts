@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isDayKey } from './days.ts';
 
 // ---------- Enums ----------
 
@@ -23,6 +24,9 @@ export const TODAY_SLOTS = ['main', 'side'] as const;
 export const TodaySlot = z.enum(TODAY_SLOTS);
 export type TodaySlot = z.infer<typeof TodaySlot>;
 export const MAX_TODAY_MAIN = 3;
+
+/** A calendar day, `YYYY-MM-DD`, in the user's own time zone. */
+export const PlanDate = z.string().refine(isDayKey, 'date must be a real day, YYYY-MM-DD');
 
 /** `manual`, `voice`, or `ai:<agent>` (agent = short slug). */
 export const TaskSource = z
@@ -57,8 +61,13 @@ export const Task = z.object({
   agentClaimedBy: z.string().nullable(),
   /** On the Today list; null = not. Stays set once done, so it shows under "Done today". */
   today: TodaySlot.nullable(),
-  /** When it went on Today. Before the start of today = carried over. */
+  /** When it went on the plan, or moved to another day. Orders a day's tasks. */
   todayAt: z.string().nullable(),
+  /**
+   * The day it's planned for (with `today` set). Later than today = planned ahead; earlier =
+   * carried over to today. null on tasks planned before days existed: see `planDayOf`.
+   */
+  planDate: z.string().nullable().optional(),
   /** Added straight to Today: lives only there, never on the board. */
   todayOnly: z.boolean(),
   /** Words of the title shown in bold for skimming, picked by the server. null = not picked yet. */
@@ -98,6 +107,8 @@ export const CreateTaskInput = z.object({
   agentState: z.literal('ready').nullable().optional(),
   /** Put it on Today (top-level tasks only). */
   today: TodaySlot.nullable().optional(),
+  /** Plan it for this day instead of today (as Secondary unless `today` says). */
+  planDate: PlanDate.optional(),
   /** Keep it off the board: it lives only on Today. Needs `today`. */
   todayOnly: z.boolean().optional(),
   /** Create subtasks in the same step (same transaction). */
@@ -119,6 +130,8 @@ export const UpdateTaskInput = z
     agentState: AgentState.nullable(),
     /** Put on Today, move between main and side, or (null) take off. Top-level tasks only. */
     today: TodaySlot.nullable(),
+    /** Move it to another day of the plan (puts it on as Secondary if it wasn't). */
+    planDate: PlanDate,
   })
   .partial()
   .strict();

@@ -198,6 +198,7 @@ export class ActivityService {
         // Events from before Today existed don't carry these.
         today: before.today ?? null,
         todayAt: date(before.todayAt ?? null),
+        planDate: before.planDate ?? null,
         todayOnly: before.todayOnly ?? false,
         keyWords: before.keyWords ?? null,
       };

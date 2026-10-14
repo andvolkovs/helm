@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { buildTree, computeFocus } from '@helm/shared';
+import { buildTree, computeFocus, dayKey } from '@helm/shared';
 import { useProjects, useTaskAction, useTasks } from '../../lib/queries.ts';
 import { useCompleteTask } from '../../lib/useCompleteTask.ts';
 import { useNow } from '../../lib/useNow.ts';
@@ -18,7 +18,8 @@ export function FocusView() {
   const now = useNow(30_000);
   const layout = useFocusLayout();
 
-  const focus = useMemo(() => computeFocus(tasks.data ?? []), [tasks.data]);
+  const today = dayKey(new Date(now));
+  const focus = useMemo(() => computeFocus(tasks.data ?? [], today), [tasks.data, today]);
   const openCount = useMemo(
     () => buildTree(tasks.data ?? []).filter((t) => t.status !== 'done').length,
     [tasks.data],

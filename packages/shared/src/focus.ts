@@ -1,4 +1,5 @@
 import type { Task } from './schemas.ts';
+import { shownDayOf } from './days.ts';
 import { buildTree, type TaskNode } from './tree.ts';
 
 export interface Focus {
@@ -32,7 +33,11 @@ function byStartedDesc(a: Task, b: Task): number {
   return (b.startedAt ?? '').localeCompare(a.startedAt ?? '');
 }
 
-export function computeFocus(tasks: readonly Task[]): Focus {
+/**
+ * `today` (the user's `YYYY-MM-DD`) keeps main tasks planned for a later day out of Today's;
+ * without it, every main task counts.
+ */
+export function computeFocus(tasks: readonly Task[], today?: string, timeZone?: string): Focus {
   const roots = buildTree(tasks).filter(isOpen);
   const rootById = new Map(roots.map((n) => [n.id, n]));
 
@@ -52,8 +57,9 @@ export function computeFocus(tasks: readonly Task[]): Focus {
 
   const rest = roots.filter((n) => n.id !== current?.id);
   const alsoInProgress = rest.filter(hasWorkInProgress);
-  const todayMain = rest.filter((n) => n.today === 'main').sort(byPlanned);
-  const nowList = [...todayMain, ...rest.filter((n) => n.priority === 'now' && n.today !== 'main')];
+  const isTodayMain = (n: TaskNode) => n.today === 'main' && (!today || shownDayOf(n, today, timeZone) === today);
+  const todayMain = rest.filter(isTodayMain).sort(byPlanned);
+  const nowList = [...todayMain, ...rest.filter((n) => n.priority === 'now' && !isTodayMain(n))];
 
   const upNext =
     nowList.find((n) => n.status === 'todo') ??

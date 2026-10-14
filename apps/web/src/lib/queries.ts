@@ -206,11 +206,24 @@ export function useTaskAction() {
 }
 
 /** Put a task on Today (main or side) or take it off (null). */
+/**
+ * Put a task on the plan, move it between main and side or to another day (`planDate`), or take
+ * it off (`today: null`). The card moves at once; the server's answer then wins.
+ */
 export function useSetToday() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, today }: { id: string; today: TodaySlot | null }) => api.updateTask(id, { today }),
+    mutationFn: ({ id, today, planDate }: { id: string; today?: TodaySlot | null; planDate?: string }) =>
+      api.updateTask(id, { ...(today !== undefined ? { today } : {}), ...(planDate ? { planDate } : {}) }),
+    onMutate: ({ id, today, planDate }) => {
+      const t = qc.getQueryData<Task[]>(keys.tasks)?.find((x) => x.id === id);
+      if (!t) return;
+      const slot = today !== undefined ? today : (t.today ?? 'side');
+      // Keeps the old updatedAt so the server response (newer) always wins.
+      upsert(qc, keys.tasks, { ...t, today: slot, planDate: slot ? (planDate ?? t.planDate ?? null) : null });
+    },
     onSuccess: (task) => upsertTask(qc, task),
+    onError: () => qc.invalidateQueries({ queryKey: keys.tasks }),
   });
 }
 

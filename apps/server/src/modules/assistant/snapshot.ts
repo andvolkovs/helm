@@ -1,4 +1,4 @@
-import { buildTree, type Project, type Task, type TaskNode } from '@helm/shared';
+import { buildTree, dayKey, formatDay, shownDayOf, type Project, type Task, type TaskNode } from '@helm/shared';
 
 /** Top-level tasks sent to the model at most; the rest are summarised as a count. */
 export const MAX_TASKS = 150;
@@ -45,7 +45,22 @@ export function today(now: Date, timeZone?: string): string {
   }
 }
 
-export function buildSnapshot(board: Task[], projects: Project[], recentlyDone: Task[], now: Date): Snapshot {
+export function buildSnapshot(
+  board: Task[],
+  projects: Project[],
+  recentlyDone: Task[],
+  now: Date,
+  timeZone?: string,
+): Snapshot {
+  const todayKey = dayKey(now, timeZone);
+  const planned = (t: Task) => {
+    const day = shownDayOf(t, todayKey, timeZone);
+    if (!day) return null;
+    const slot = t.today === 'main' ? 'main' : 'secondary';
+    return day === todayKey
+      ? `on the user's Today list (${slot})`
+      : `planned for ${formatDay(day, { weekday: 'long', day: 'numeric', month: 'long' }, 'en-GB')} (${slot})`;
+  };
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
   const nameOf = (t: Task) => (t.projectId ? (projectName.get(t.projectId) ?? 'Inbox') : 'Inbox');
   const open = buildTree(board).filter((n) => n.status !== 'done');
@@ -67,7 +82,7 @@ export function buildSnapshot(board: Task[], projects: Project[], recentlyDone: 
       `priority ${PRIORITY_WORD[t.priority]}`,
       t.status === 'in_progress' ? `IN PROGRESS, started ${ago(t.startedAt ?? t.updatedAt, now)}` : null,
       t.estimateMinutes ? `estimate ${t.estimateMinutes} min` : null,
-      t.today ? `on the user's Today list (${t.today === 'main' ? 'main' : 'secondary'})` : null,
+      planned(t),
       `added ${ago(t.createdAt, now)}`,
       t.source !== 'manual' ? `added by ${t.source}` : null,
       t.agentState === 'ready'

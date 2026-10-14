@@ -18,6 +18,11 @@ change it through MCP or a REST API. Changes show up everywhere at once.
 - **Today**: the day's plan. Up to three **main** tasks and **secondary** ones if there's time.
   Put board tasks on it with ☀, or add tasks that live only there. Unfinished ones carry over to
   the next day, marked as such.
+- **Week**: plan the days ahead, each with its own main and secondary tasks. On a computer the
+  days sit side by side: drag tasks onto a day from the shelf of unplanned ones, finished days
+  fold away, and **By time** sizes each task by its estimate against a daily budget, so an
+  overfull day shows at a glance. On a phone, pick a day from the strip. Board cards show the
+  day a task is planned for.
 - **Tasks** with notes, subtasks and an estimate; pick the project with one tap. One task is in
   progress at a time. The words each task is about show in bold, picked by AI, so a board is
   quick to skim.

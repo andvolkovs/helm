@@ -1,4 +1,4 @@
-import type { ActivityChange, ActivityEntry, Project, Task } from '@helm/shared';
+import { dayKey, formatDay, type ActivityChange, type ActivityEntry, type Project, type Task } from '@helm/shared';
 import { formatMinutes } from '../../lib/format.ts';
 
 /** `owner` → You, `token:Claude Code` → Claude Code, `ai:assistant` → Assistant. */
@@ -54,7 +54,16 @@ function taskDetails(b: Task, a: Task, names: Names): string[] {
   if (b.agentState !== a.agentState) out.push(`Agents: ${AGENT[b.agentState ?? 'none']} → ${AGENT[a.agentState ?? 'none']}`);
   // Events from before Today existed have no `today`.
   if ((b.today ?? null) !== (a.today ?? null)) out.push(`Today: ${TODAY[b.today ?? 'none']} → ${TODAY[a.today ?? 'none']}`);
+  if (b.planDate && a.planDate && b.planDate !== a.planDate) out.push(`Day: ${dayName(b.planDate)} → ${dayName(a.planDate)}`);
   return out;
+}
+
+const dayName = (day: string) => formatDay(day, { weekday: 'short', day: 'numeric', month: 'short' });
+
+/** "on Today", or "for Thu 15 Oct" when it was planned for a later day than the one it went on. */
+function planPlace(t: Task): string {
+  const ahead = t.planDate && t.todayAt && t.planDate > dayKey(new Date(t.todayAt));
+  return ahead ? `for ${dayName(t.planDate!)}` : 'on Today';
 }
 
 const TODAY = { none: 'not on it', main: 'main', side: 'secondary' } as const;
@@ -103,9 +112,13 @@ function taskLine(c: ActivityChange, names: Names): Omit<ChangeLine, 'key' | 'al
         return { text: `Set ${t} to ${PRIORITY[a.priority]}`, details: [] };
       }
       if (details.length === 1 && (b.today ?? null) !== (a.today ?? null)) {
-        if (!a.today) return { text: `Took ${t} off Today`, details: [] };
-        if (b.today) return { text: `Made ${t} ${a.today === 'main' ? 'a main task' : 'secondary'} on Today`, details: [] };
-        return { text: `Put ${t} on Today${a.today === 'main' ? ' as a main task' : ''}`, details: [] };
+        if (!a.today) return { text: `Took ${t} off ${b.planDate ? 'the plan' : 'Today'}`, details: [] };
+        if (b.today) return { text: `Made ${t} ${a.today === 'main' ? 'a main task' : 'secondary'} ${planPlace(a)}`, details: [] };
+        const verb = planPlace(a) === 'on Today' ? 'Put' : 'Planned';
+        return { text: `${verb} ${t} ${planPlace(a)}${a.today === 'main' ? ' as a main task' : ''}`, details: [] };
+      }
+      if (details.length === 1 && b.planDate && a.planDate && b.planDate !== a.planDate) {
+        return { text: `Moved ${t} to ${dayName(a.planDate)}`, details: [] };
       }
       return { text: `Changed ${t}`, details };
     }

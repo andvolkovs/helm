@@ -13,6 +13,8 @@ import {
 import {
   MAX_TODAY_MAIN,
   PRIORITIES,
+  shortDay,
+  shownDayOf,
   parseQuickAdd,
   projectCandidates,
   type Priority,
@@ -25,6 +27,7 @@ import { formatMinutes } from '../../lib/format.ts';
 import { upsertTask, useCreateProject, useProjects, useSetAgentState, useTaskAction, useTasks } from '../../lib/queries.ts';
 import { hrefFor } from '../../lib/route.ts';
 import { useDeleteTask } from '../../lib/useDeleteTask.ts';
+import { useToday } from '../../lib/useToday.ts';
 import { LineInput } from '../../ui/LineInput.tsx';
 import { agentName } from '../board/agent-badge.ts';
 import { projectIcon } from '../board/project-icon.ts';
@@ -114,10 +117,15 @@ export function TaskDialog({ target, queued, onClose }: Props) {
   }, [focusSub]);
 
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
-  // Main holds a few tasks; this one doesn't count against itself.
+  // The day it's on: today, or the later day it's planned for.
+  const today = useToday();
+  const planDay = (editing && shownDayOf(editing, today)) || today;
+  const dayLabel = planDay === today ? 'Today' : shortDay(planDay);
+  // Main holds a few tasks a day; this one doesn't count against itself.
   const mainFull =
-    (tasks.data ?? []).filter((t) => t.today === 'main' && t.status !== 'done' && !t.deletedAt && t.id !== editing?.id)
-      .length >= MAX_TODAY_MAIN;
+    (tasks.data ?? []).filter(
+      (t) => t.today === 'main' && t.status !== 'done' && !t.deletedAt && t.id !== editing?.id && shownDayOf(t, today) === planDay,
+    ).length >= MAX_TODAY_MAIN;
   const parsed = parseQuickAdd(draft.title);
 
   useEffect(() => {
@@ -433,7 +441,7 @@ export function TaskDialog({ target, queued, onClose }: Props) {
         {!isSubtask && editing?.status !== 'done' && (
           <div className="field editor-inline" role="radiogroup" aria-labelledby={ids.today}>
             <span id={ids.today} className="editor-inline-label">
-              Today
+              {dayLabel}
             </span>
             <div className="segmented">
               {TODAY_CHOICES.map(([value, label]) => {
