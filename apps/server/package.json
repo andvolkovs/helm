@@ -16,15 +16,15 @@
     "@helm/db": "workspace:*",
     "@helm/providers": "workspace:*",
     "@helm/shared": "workspace:*",
-    "@hono/node-server": "^2.1.1",
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@hono/node-server": "^2.1.8",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "~12.11.1",
     "drizzle-orm": "^0.45.3",
     "fractional-indexing": "^4.0.0",
-    "hono": "^4.13.8",
+    "hono": "^4.13.18",
     "ulidx": "^2.4.1",
     "web-push": "^3.6.7",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -33,6 +33,6 @@
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.1.0"
   }
 }
