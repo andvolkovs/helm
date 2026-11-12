@@ -24,11 +24,29 @@ if (config.ownerPassword.length < 12) {
 // A stray failure in background work (key words, push) is logged, not fatal.
 process.on('unhandledRejection', (reason) => console.error('Unhandled rejection:', reason));
 const { db, backup, close } = openDb({ path: config.dbPath, migrationsFolder: config.migrationsDir });
-const ctx: ServiceContext = { db, bus: new EventBus(), rules: config.rules, now: () => new Date() };
+const ctx: ServiceContext = {
+  db,
+  bus: new EventBus(),
+  rules: config.rules,
+  now: () => new Date(),
+  historyKeepDays: config.historyKeepDays,
+};
 const services = createServices(ctx);
 
 const stopBackups =
   config.backups.keep > 0 ? scheduleBackups({ dir: config.backups.dir, keep: config.backups.keep, backup }) : () => {};
+
+// The change log is thinned out shortly after start and then once a day (see ActivityService.prune).
+const pruneEvents = () => {
+  try {
+    const { removed } = services.activity.prune();
+    if (removed > 0) console.log(`Activity log: removed ${removed} old entries`);
+  } catch (e) {
+    console.error('Activity log: pruning failed:', e);
+  }
+};
+setTimeout(pruneEvents, 2 * 60_000).unref();
+setInterval(pruneEvents, 24 * 60 * 60_000).unref();
 
 const providers = createProviders(config.ai);
 for (const reason of Object.values(providers.reasons)) if (reason) console.log(`AI: ${reason}`);

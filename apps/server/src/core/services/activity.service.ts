@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, max, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, max, ne, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { events, projects, tasks, type EventRow, type Tx } from '@helm/db';
 import {
   ActivityQuery,
@@ -12,6 +12,7 @@ import { assertOwner, type Principal } from '../auth/principal.ts';
 import { HelmError, notFound, parse } from '../errors.ts';
 import { mutate, type Emit, type ServiceContext } from './context.ts';
 import { toProject, toTask } from './mappers.ts';
+import type { SettingsService } from './settings.service.ts';
 
 /** Events from before batches existed stand alone, keyed by their own id. */
 const batchKey = sql<string>`coalesce(${events.batchId}, 'e' || ${events.id})`;
@@ -19,8 +20,34 @@ const keyOf = (e: EventRow) => e.batchId ?? `e${e.id}`;
 const inBatch = (key: string): SQL =>
   /^e\d+$/.test(key) ? and(eq(events.id, Number(key.slice(1))), sql`${events.batchId} is null`)! : eq(events.batchId, key);
 
-/** Key words picked in the background (`keyed`) aren't changes anyone made: left out, never undone. */
-const TRACKED = and(inArray(events.entity, ['task', 'project']), ne(events.action, 'keyed'));
+/** The same for many batches at once, through the indexes on `batch_id` and `id`. */
+function inBatches(keys: string[]): SQL {
+  const lone = keys.filter((k) => /^e\d+$/.test(k)).map((k) => Number(k.slice(1)));
+  const shared = keys.filter((k) => !/^e\d+$/.test(k));
+  return (
+    or(
+      shared.length ? inArray(events.batchId, shared) : undefined,
+      lone.length ? and(inArray(events.id, lone), sql`${events.batchId} is null`) : undefined,
+    ) ?? sql`0`
+  );
+}
+
+const DAY_MS = 86_400_000;
+/**
+ * Rows asked for beyond the batches still missing, per step while looking for a page. Kept
+ * small: with a filter few events pass (agents only), every extra row means reading far back.
+ */
+const SCAN_SPARE = 10;
+/** How long events nobody sees in the log are kept, for apps catching up after being away. */
+const SYNC_ONLY_KEEP_DAYS = 7;
+
+/**
+ * Key words picked in the background (`keyed`) aren't changes anyone made: left out, never undone.
+ * The `+` keeps SQLite from reaching for the entity index on this test. Nearly every event is a
+ * task or project event, so that index narrows nothing: it would read them all and sort, where
+ * the batch index, or simply the newest rows in id order, gets there at once.
+ */
+const TRACKED = and(sql`+${events.entity} in ('task', 'project')`, ne(events.action, 'keyed'));
 const date = (iso: string | null) => (iso ? new Date(iso) : null);
 
 /**
@@ -28,7 +55,10 @@ const date = (iso: string | null) => (iso ? new Date(iso) : null);
  * it can be shown and undone. Built from the append-only events table. Owner only.
  */
 export class ActivityService {
-  constructor(private readonly ctx: ServiceContext) {}
+  constructor(
+    private readonly ctx: ServiceContext,
+    private readonly settings: SettingsService,
+  ) {}
 
   list(p: Principal, query: unknown = {}): ActivityPage {
     assertOwner(p);
@@ -36,18 +66,10 @@ export class ActivityService {
     const limit = q.limit ?? 30;
     const db = this.ctx.db;
 
-    const touching = q.taskId
-      ? inArray(batchKey, db.select({ k: batchKey }).from(events).where(eq(events.entityId, q.taskId)))
-      : undefined;
-    const batches = db
-      .select({ key: batchKey, last: max(events.id) })
-      .from(events)
-      .where(and(TRACKED, q.who === 'agents' ? ne(events.actor, 'owner') : undefined, touching))
-      .groupBy(batchKey)
-      .having(q.cursor ? lt(max(events.id), q.cursor) : undefined)
-      .orderBy(desc(max(events.id)))
-      .limit(limit + 1)
-      .all();
+    const who = q.who === 'agents' ? ne(events.actor, 'owner') : undefined;
+    const batches = q.taskId
+      ? this.batchesTouching(q.taskId, who, q.cursor, limit)
+      : this.latestBatches(who, q.cursor, limit);
     const page = batches.slice(0, limit);
     const keys = page.map((b) => b.key);
     if (keys.length === 0) return { entries: [], nextCursor: null };
@@ -55,7 +77,7 @@ export class ActivityService {
     const rows = db
       .select()
       .from(events)
-      .where(and(TRACKED, inArray(batchKey, keys)))
+      .where(and(TRACKED, inBatches(keys)))
       .orderBy(asc(events.id))
       .all();
     const undone = new Map(
@@ -82,15 +104,17 @@ export class ActivityService {
         undoOf: first.undoOf,
       };
     });
-    const last = page.at(-1)!;
-    return { entries, nextCursor: batches.length > limit ? last.last : null };
+    // The oldest event of the last batch shown: the next page starts strictly before it.
+    const oldest = rows.find((e) => keyOf(e) === page.at(-1)!.key)!.id;
+    return { entries, nextCursor: batches.length > limit ? oldest : null };
   }
 
   /** Put everything a batch changed back the way it was, as one new (itself undoable) batch. */
   undo(p: Principal, key: string): { ok: true } {
     assertOwner(p);
     const evs = this.ctx.db.select().from(events).where(and(TRACKED, inBatch(key))).orderBy(asc(events.id)).all();
-    if (evs.length === 0) throw notFound('Change');
+    const since = this.visibleFrom();
+    if (evs.length === 0 || (since && evs[0]!.at < since)) throw notFound('Change');
     const done = this.ctx.db.select({ id: events.id }).from(events).where(eq(events.undoOf, key)).limit(1).get();
     const reason = done ? 'Already undone.' : this.whyNot(this.ctx.db, evs);
     if (reason) throw new HelmError('conflict', reason);
@@ -114,6 +138,103 @@ export class ActivityService {
       { undoOf: key },
     );
     return { ok: true };
+  }
+
+  // ---------- Paging ----------
+
+  /** Only history newer than this is shown or undone (see `prune`); undefined = all of it. */
+  private visibleFrom(): Date | undefined {
+    const days = this.ctx.historyKeepDays ?? 0;
+    return days > 0 ? new Date(this.ctx.now().getTime() - days * DAY_MS) : undefined;
+  }
+
+  /**
+   * The newest batches, found by walking the log backwards from the cursor and stopping as soon
+   * as a page is full. One request writes its events in one transaction, so a batch's events sit
+   * next to each other and the first one met is its newest. Cost follows the page, not the log.
+   */
+  private latestBatches(who: SQL | undefined, cursor: number | undefined, limit: number): { key: string }[] {
+    const since = this.visibleFrom();
+    const found: { key: string }[] = [];
+    const seen = new Set<string>();
+    let before = cursor;
+    for (;;) {
+      const want = limit + 1 - found.length + SCAN_SPARE;
+      const chunk = this.ctx.db
+        .select({ id: events.id, key: batchKey })
+        .from(events)
+        .where(and(TRACKED, who, since ? gte(events.at, since) : undefined, before ? lt(events.id, before) : undefined))
+        .orderBy(desc(events.id))
+        .limit(want)
+        .all();
+      for (const r of chunk) {
+        if (seen.has(r.key)) continue;
+        seen.add(r.key);
+        found.push({ key: r.key });
+        if (found.length > limit) return found;
+      }
+      if (chunk.length < want) return found;
+      before = chunk.at(-1)!.id;
+    }
+  }
+
+  /** The newest batches that changed one task: few, and found through the entity index. */
+  private batchesTouching(taskId: string, who: SQL | undefined, cursor: number | undefined, limit: number): { key: string }[] {
+    const db = this.ctx.db;
+    const since = this.visibleFrom();
+    const keys = db
+      .selectDistinct({ key: batchKey })
+      .from(events)
+      .where(and(eq(events.entity, 'task'), eq(events.entityId, taskId)))
+      .all()
+      .map((r) => r.key);
+    if (keys.length === 0) return [];
+    return db
+      .select({ key: batchKey })
+      .from(events)
+      .where(and(TRACKED, who, inBatches(keys), since ? gte(events.at, since) : undefined))
+      .groupBy(batchKey)
+      .having(cursor ? lt(max(events.id), cursor) : undefined)
+      .orderBy(desc(max(events.id)))
+      .limit(limit + 1)
+      .all();
+  }
+
+  // ---------- Housekeeping ----------
+
+  /**
+   * Thin out the event log, which otherwise grows with every change for ever:
+   * - events that only exist to keep open apps in step (key-word picks, timer and token changes)
+   *   go after a week: nobody sees them in the activity log;
+   * - with `historyKeepDays` set, task and project history older than that goes too, except each
+   *   task's or project's newest older event, kept so later changes still know what came before.
+   * An app that was away for longer than what is left simply takes a fresh snapshot.
+   */
+  prune(): { removed: number } {
+    const now = this.ctx.now().getTime();
+    const keepDays = this.ctx.historyKeepDays ?? 0;
+    return this.ctx.db.transaction((tx) => {
+      const syncOnly = and(
+        lt(events.at, new Date(now - SYNC_ONLY_KEEP_DAYS * DAY_MS)),
+        or(inArray(events.entity, ['token', 'timer']), eq(events.action, 'keyed')),
+      );
+      let old: SQL | undefined;
+      if (keepDays > 0) {
+        const cut = new Date(now - keepDays * DAY_MS);
+        const baselines = tx
+          .select({ id: max(events.id) })
+          .from(events)
+          .where(and(TRACKED, lt(events.at, cut)))
+          .groupBy(events.entity, events.entityId);
+        old = and(lt(events.at, cut), notInArray(events.id, baselines));
+      }
+      const doomed = or(syncOnly, old);
+      const top = tx.select({ id: max(events.id) }).from(events).where(doomed).get()?.id;
+      if (top == null) return { removed: 0 };
+      const removed = tx.delete(events).where(doomed).run().changes;
+      this.settings.notePruned(top);
+      return { removed };
+    });
   }
 
   // ---------- Helpers ----------

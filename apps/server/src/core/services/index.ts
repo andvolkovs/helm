@@ -18,14 +18,15 @@ export interface Services {
 }
 
 export function createServices(ctx: ServiceContext): Services {
+  const settings = new SettingsService(ctx);
   return {
     tasks: new TaskService(ctx),
     projects: new ProjectService(ctx),
     tokens: new TokenService(ctx),
     timers: new TimerService(ctx),
     push: new PushService(ctx),
-    activity: new ActivityService(ctx),
-    settings: new SettingsService(ctx),
+    activity: new ActivityService(ctx, settings),
+    settings,
   };
 }
 

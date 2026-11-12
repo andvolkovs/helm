@@ -5,6 +5,7 @@ import type { ServiceContext } from './context.ts';
 const TIME_ZONE = 'owner_time_zone';
 const SESSIONS_VALID_FROM = 'sessions_valid_from';
 const PASSWORD_FINGERPRINT = 'owner_password_fingerprint';
+const EVENTS_PRUNED_THROUGH = 'events_pruned_through';
 
 /** Small values that must survive restarts: the owner's time zone and which sessions still count. */
 export class SettingsService {
@@ -42,6 +43,17 @@ export class SettingsService {
 
   rememberOwnerZone(timeZone: string): void {
     if (this.get(TIME_ZONE) !== timeZone) this.set(TIME_ZONE, timeZone);
+  }
+
+  // ---------- Event log ----------
+
+  /** The highest event id ever pruned. A live stream resuming from below it has a gap: it refetches. */
+  eventsPrunedThrough(): number {
+    return Number(this.get(EVENTS_PRUNED_THROUGH) ?? 0);
+  }
+
+  notePruned(throughId: number): void {
+    if (throughId > this.eventsPrunedThrough()) this.set(EVENTS_PRUNED_THROUGH, String(throughId));
   }
 
   // ---------- Sessions ----------

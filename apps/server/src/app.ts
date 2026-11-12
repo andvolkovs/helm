@@ -128,7 +128,7 @@ export async function createApp({
     return next();
   });
   api.route('/', apiRoutes(services));
-  api.route('/', eventRoutes(ctx.db, ctx.bus));
+  api.route('/', eventRoutes(ctx.db, ctx.bus, () => services.settings.eventsPrunedThrough()));
 
   for (const m of modules) {
     await m.register({ config, services, bus: ctx.bus, providers, api, root: app });

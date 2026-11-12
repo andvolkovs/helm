@@ -10,6 +10,8 @@ export interface ServiceContext {
   bus: EventBus;
   rules: TaskRules;
   now: () => Date;
+  /** Days of activity history to keep and show; 0 or absent = all of it. */
+  historyKeepDays?: number;
 }
 
 export interface EmitInput {

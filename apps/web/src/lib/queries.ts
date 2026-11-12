@@ -73,6 +73,28 @@ export function useActivity(query: Omit<ActivityQuery, 'cursor' | 'limit'>) {
   });
 }
 
+const awaitingSnapshot = new WeakMap<QueryClient, Set<string>>();
+
+/**
+ * A snapshot request in flight may predate a live event, and would then overwrite it when it
+ * lands: so fetch once more after it does. Once, however many events arrive meanwhile. Asking
+ * again on every event would restart the request each time, one request per event in a burst.
+ */
+export function refetchAfterInFlight(qc: QueryClient, key: readonly unknown[]): void {
+  if (qc.isFetching({ queryKey: key }) === 0) return;
+  const name = JSON.stringify(key);
+  let waiting = awaitingSnapshot.get(qc);
+  if (!waiting) awaitingSnapshot.set(qc, (waiting = new Set()));
+  if (waiting.has(name)) return;
+  waiting.add(name);
+  const stop = qc.getQueryCache().subscribe(() => {
+    if (qc.isFetching({ queryKey: key }) > 0) return;
+    stop();
+    waiting.delete(name);
+    void qc.invalidateQueries({ queryKey: key });
+  });
+}
+
 const activityRefresh = new WeakMap<QueryClient, ReturnType<typeof setTimeout>>();
 
 /** One request can emit many events; refetch the activity log once after the burst. */

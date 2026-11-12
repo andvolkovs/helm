@@ -30,7 +30,7 @@ function revokes(p: Principal, e: HelmEvent): boolean {
  * - Without a cursor, a `ready` event carries the current cursor.
  * - `reset` means the client is too far behind and should refetch everything.
  */
-export function eventRoutes(db: Db, bus: EventBus): Hono<AppEnv> {
+export function eventRoutes(db: Db, bus: EventBus, prunedThrough: () => number = () => 0): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.get('/events', (c) => {
@@ -75,7 +75,8 @@ export function eventRoutes(db: Db, bus: EventBus): Hono<AppEnv> {
           .orderBy(asc(events.id))
           .limit(MAX_REPLAY + 1)
           .all();
-        if (backlog.length > MAX_REPLAY) {
+        // Too far behind, or some of what was missed has been pruned since.
+        if (backlog.length > MAX_REPLAY || since < prunedThrough()) {
           cursor = head;
           await stream.writeSSE({ id: String(head), event: 'reset', data: JSON.stringify({ cursor: head }) });
         } else {

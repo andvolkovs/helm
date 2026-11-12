@@ -11,6 +11,8 @@ const Env = z.object({
   // Daily copies of the database. Default: a `backups` folder next to it.
   HELM_BACKUP_DIR: z.string().trim().optional(),
   HELM_BACKUP_KEEP: z.coerce.number().int().min(0).default(14),
+  // Days of activity history to keep; 0 keeps all of it.
+  HELM_HISTORY_KEEP_DAYS: z.coerce.number().int().min(0).default(0),
   HELM_OWNER_PASSWORD: z.string().min(1, 'HELM_OWNER_PASSWORD is required'),
   HELM_SESSION_SECRET: z.string().min(16, 'HELM_SESSION_SECRET must be at least 16 chars'),
   HELM_COOKIE_SECURE: z.stringbool().default(false),
@@ -42,6 +44,8 @@ export interface Config {
   migrationsDir?: string;
   /** Daily database copies: where, and how many to keep (0 = off). */
   backups: { dir: string; keep: number };
+  /** Days of activity history (who changed what, with Undo) to keep; 0 = all of it. */
+  historyKeepDays: number;
   ownerPassword: string;
   sessionSecret: string;
   cookieSecure: boolean;
@@ -68,6 +72,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       dir: e.HELM_BACKUP_DIR || join(dirname(e.HELM_DB_PATH), 'backups'),
       keep: e.HELM_DB_PATH === ':memory:' ? 0 : e.HELM_BACKUP_KEEP,
     },
+    historyKeepDays: e.HELM_HISTORY_KEEP_DAYS,
     ownerPassword: e.HELM_OWNER_PASSWORD,
     sessionSecret: e.HELM_SESSION_SECRET,
     cookieSecure: e.HELM_COOKIE_SECURE,
