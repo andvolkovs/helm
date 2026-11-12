@@ -16,6 +16,13 @@ import { voiceModule } from './modules/voice/index.ts';
 import { keyWordsModule } from './modules/key-words/index.ts';
 
 const config = loadConfig();
+if (config.ownerPassword.length < 12) {
+  console.warn(
+    'HELM_OWNER_PASSWORD is short. Use at least 12 characters: it is the only thing between the network and your board.',
+  );
+}
+// A stray failure in background work (key words, push) is logged, not fatal.
+process.on('unhandledRejection', (reason) => console.error('Unhandled rejection:', reason));
 const { db, backup, close } = openDb({ path: config.dbPath, migrationsFolder: config.migrationsDir });
 const ctx: ServiceContext = { db, bus: new EventBus(), rules: config.rules, now: () => new Date() };
 const services = createServices(ctx);

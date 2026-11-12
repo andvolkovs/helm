@@ -2,6 +2,7 @@ import { ActivityService } from './activity.service.ts';
 import type { ServiceContext } from './context.ts';
 import { ProjectService } from './project.service.ts';
 import { PushService } from './push.service.ts';
+import { SettingsService } from './settings.service.ts';
 import { TaskService } from './task.service.ts';
 import { TimerService } from './timer.service.ts';
 import { TokenService } from './token.service.ts';
@@ -13,6 +14,7 @@ export interface Services {
   timers: TimerService;
   push: PushService;
   activity: ActivityService;
+  settings: SettingsService;
 }
 
 export function createServices(ctx: ServiceContext): Services {
@@ -23,8 +25,9 @@ export function createServices(ctx: ServiceContext): Services {
     timers: new TimerService(ctx),
     push: new PushService(ctx),
     activity: new ActivityService(ctx),
+    settings: new SettingsService(ctx),
   };
 }
 
 export type { ServiceContext } from './context.ts';
-export { TaskService, ProjectService, TokenService, TimerService, PushService, ActivityService };
+export { TaskService, ProjectService, TokenService, TimerService, PushService, ActivityService, SettingsService };

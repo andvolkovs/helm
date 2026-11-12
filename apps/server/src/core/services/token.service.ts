@@ -96,6 +96,6 @@ export class TokenService {
     if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
       this.ctx.db.update(apiTokens).set({ lastUsedAt: now }).where(eq(apiTokens.id, row.id)).run();
     }
-    return { kind: 'token', tokenId: row.id, name: row.name, scope: row.scope, projectIds: row.projectIds ?? null };
+    return { kind: 'token', tokenId: row.id, name: row.name, scope: row.scope, projectIds: row.projectIds ?? null, expiresAt: row.expiresAt };
   }
 }

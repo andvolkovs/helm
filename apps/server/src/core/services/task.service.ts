@@ -26,7 +26,7 @@ import {
 } from '@helm/shared';
 import { generateNKeysBetween } from 'fractional-indexing';
 import { ulid } from 'ulidx';
-import { actorOf, assertRead, assertWrite, projectScope, type Principal } from '../auth/principal.ts';
+import { actorOf, assertOwner, assertRead, assertWrite, projectScope, type Principal } from '../auth/principal.ts';
 import { forbidden, HelmError, invalid, notFound, parse } from '../errors.ts';
 import { mutate, type Emit, type ServiceContext } from './context.ts';
 import { toTask } from './mappers.ts';
@@ -229,6 +229,8 @@ export class TaskService {
     return mutate(this.ctx, p, (tx, emit) => {
       let row = this.getRow(tx, id);
       assertWrite(p, row.projectId);
+      // Checked against the task as it is now: clearing the hand-off in the same request doesn't count.
+      if (patch.status !== undefined) this.checkStatusChange(tx, p, row, patch.status);
 
       const fields: Patch = {};
       if (patch.title !== undefined && patch.title !== row.title) {
@@ -276,7 +278,7 @@ export class TaskService {
       if (patch.agentState !== undefined && patch.agentState !== row.agentState) {
         row = this.handOff(tx, emit, p, row, patch.agentState);
       }
-      if (patch.status !== undefined) row = this.transition(tx, emit, row, this.checkStatusChange(p, row, patch.status));
+      if (patch.status !== undefined) row = this.transition(tx, emit, row, this.checkStatusChange(tx, p, row, patch.status));
       return toTask(row);
     });
   }
@@ -430,7 +432,7 @@ export class TaskService {
     return mutate(this.ctx, p, (tx, emit) => {
       const row = this.getRow(tx, id);
       assertWrite(p, row.projectId);
-      return toTask(this.transition(tx, emit, row, this.checkStatusChange(p, row, status)));
+      return toTask(this.transition(tx, emit, row, this.checkStatusChange(tx, p, row, status)));
     });
   }
 
@@ -439,13 +441,13 @@ export class TaskService {
   complete = (p: Principal, id: string) => this.setStatus(p, id, 'done');
   reopen = (p: Principal, id: string) => this.setStatus(p, id, 'todo');
 
-  /** Soft delete, including subtasks. */
+  /** Soft delete, including subtasks at every depth. Owner only: agents never delete. */
   remove(p: Principal, id: string): Task {
+    assertOwner(p);
     return mutate(this.ctx, p, (tx, emit) => {
       const row = this.getRow(tx, id);
-      assertWrite(p, row.projectId);
       const now = this.ctx.now();
-      for (const child of this.children(tx, row.id)) {
+      for (const child of this.descendants(tx, row.id)) {
         emitTask(emit, 'deleted', this.write(tx, child.id, { deletedAt: now }));
       }
       const deleted = this.write(tx, row.id, { deletedAt: now });
@@ -456,17 +458,24 @@ export class TaskService {
 
   /** Undo a delete: bring the task back with the subtasks deleted along with it. */
   restore(p: Principal, id: string): Task {
+    assertOwner(p);
     return mutate(this.ctx, p, (tx, emit) => {
       const row = tx.select().from(tasks).where(eq(tasks.id, id)).get();
       if (!row) throw notFound('Task');
-      assertWrite(p, row.projectId);
       if (!row.deletedAt) return toTask(row);
       if (row.parentTaskId) this.getRow(tx, row.parentTaskId);
-      const deletedWith = tx
-        .select()
-        .from(tasks)
-        .where(and(eq(tasks.parentTaskId, row.id), eq(tasks.deletedAt, row.deletedAt)))
-        .all();
+      // Everything below it that went in the same delete, however deep.
+      const deletedWith: TaskRow[] = [];
+      let parents = [row.id];
+      for (let depth = 0; parents.length > 0 && depth < 32; depth++) {
+        const level = tx
+          .select()
+          .from(tasks)
+          .where(and(inArray(tasks.parentTaskId, parents), eq(tasks.deletedAt, row.deletedAt)))
+          .all();
+        deletedWith.push(...level);
+        parents = level.map((r) => r.id);
+      }
       const restored = this.write(tx, row.id, { deletedAt: null });
       emitTask(emit, 'restored', restored);
       for (const child of deletedWith) emitTask(emit, 'restored', this.write(tx, child.id, { deletedAt: null }));
@@ -551,9 +560,17 @@ export class TaskService {
 
   // ---------- Agent hand-off ----------
 
-  /** Agents hand finished work over for review; completing it is the owner's call. */
-  private checkStatusChange(p: Principal, row: TaskRow, to: TaskStatus): TaskStatus {
-    if (p.kind === 'token' && to === 'done' && (row.agentState === 'working' || row.agentState === 'review')) {
+  /**
+   * Agents hand finished work over for review; completing it is the owner's call. That covers a
+   * task in any hand-off state (ready, working or review) and a parent of one, since completing
+   * a parent completes its subtasks.
+   */
+  private checkStatusChange(tx: Tx, p: Principal, row: TaskRow, to: TaskStatus): TaskStatus {
+    if (p.kind !== 'token' || to !== 'done') return to;
+    const handedOff =
+      row.agentState !== null ||
+      this.descendants(tx, row.id).some((c) => c.status !== 'done' && c.agentState !== null);
+    if (handedOff) {
       throw forbidden('This task was handed to an agent: submit it for review instead. The owner completes it.');
     }
     return to;
@@ -581,6 +598,9 @@ export class TaskService {
       }
     } else if (!owner && heldByOther) {
       throw new HelmError('conflict', `${who} is working on this task; only it or the owner can change that.`);
+    } else if (!owner && to === null && row.agentState !== null) {
+      // Otherwise an agent could clear the hand-off and then complete the task itself.
+      throw forbidden('Only the owner can take a task back from agents. To release it, hand it back (state "ready").');
     }
 
     const fields: Patch =
@@ -631,6 +651,17 @@ export class TaskService {
       .all();
   }
 
+  /** Subtasks at every depth (not deleted), nearest first. */
+  private descendants(tx: Tx, id: string): TaskRow[] {
+    const out: TaskRow[] = [];
+    let level = this.children(tx, id);
+    for (let depth = 0; level.length > 0 && depth < 32; depth++) {
+      out.push(...level);
+      level = level.flatMap((c) => this.children(tx, c.id));
+    }
+    return out;
+  }
+
   private depthOf(tx: Tx, row: TaskRow): number {
     let depth = 0;
     let cur = row;
@@ -648,7 +679,7 @@ export class TaskService {
   }
 
   private cascadeProject(tx: Tx, emit: Emit, parent: TaskRow): void {
-    for (const child of this.children(tx, parent.id)) {
+    for (const child of this.descendants(tx, parent.id)) {
       emitTask(emit, 'moved', this.write(tx, child.id, { projectId: parent.projectId }));
     }
   }

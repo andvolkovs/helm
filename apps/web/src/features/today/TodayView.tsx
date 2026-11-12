@@ -7,7 +7,7 @@ import { useCompleteTask } from '../../lib/useCompleteTask.ts';
 import { useDeleteTask } from '../../lib/useDeleteTask.ts';
 import { useNow } from '../../lib/useNow.ts';
 import { useToast } from '../../ui/Toast.tsx';
-import { projectIcon } from '../board/project-icon.ts';
+import { projectTitle } from '../board/project-icon.ts';
 import { isWorking, TaskCard } from '../board/TaskCard.tsx';
 import { useSwipe } from '../board/useSwipe.ts';
 import { useEditor } from '../task-editor/EditorContext.tsx';
@@ -239,7 +239,7 @@ function TodayRow({ task, number, project, carried, canPromote, ...on }: RowProp
               {task.todayOnly ? (
                 <span className="today-only">Today only</span>
               ) : (
-                <span className="today-where">{project ? `${projectIcon(project)} ${project.name}` : 'Inbox'}</span>
+                <span className="today-where">{project ? projectTitle(project) : 'Inbox'}</span>
               )}
               {carried && <span className="today-carried">from {carried}</span>}
             </>

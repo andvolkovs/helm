@@ -47,7 +47,7 @@ change it through MCP or a REST API. Changes show up everywhere at once.
   <img src="docs/screenshots/phone-voice-review.png" width="200" alt="A task drafted by voice">
 </p>
 
-Desktop keys: **N** new task, **V** voice, **A** assistant, **B** / **T** / **F** / **D** to switch views.
+Desktop keys: **N** new task, **V** voice, **A** assistant, **B** / **T** / **W** / **F** / **D** to switch views.
 Type `:` and a word in any text field for emoji (`:fire` → 🔥).
 
 ## Quick start

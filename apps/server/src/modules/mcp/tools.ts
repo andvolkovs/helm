@@ -69,6 +69,8 @@ function agentName(p: Principal): string {
  */
 export function buildMcpServer(services: Services, p: Principal, config: Config): McpServer {
   const canWrite = p.kind === 'owner' || p.scope === 'read_write';
+  // Agents send no time zone: "today" is the owner's day, as their app last reported it.
+  const timeZone = services.settings.ownerZone();
   const limit = config.rules.inProgressLimit;
 
   const server = new McpServer(
@@ -115,7 +117,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
     ...(t.completedAt ? { completedAt: t.completedAt } : {}),
     ...(t.agentState ? { agentState: t.agentState } : {}),
     ...(t.agentClaimedBy ? { claimedBy: t.agentClaimedBy.replace(/^token:/, '') } : {}),
-    ...(t.today ? { today: t.today, plannedFor: planDayOf(t), ...(t.todayOnly ? { todayOnly: true } : {}) } : {}),
+    ...(t.today ? { today: t.today, plannedFor: planDayOf(t, timeZone), ...(t.todayOnly ? { todayOnly: true } : {}) } : {}),
     addedBy: t.source,
   });
 
@@ -151,7 +153,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
     },
     () =>
       run(() => {
-        const f = services.tasks.focus(p);
+        const f = services.tasks.focus(p, { timeZone });
         const names = projectNames();
         return {
           inProgress: f.current ? nodeView(f.current, names) : null,
@@ -189,15 +191,15 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
         const q = args.query?.toLowerCase();
         const rank = (x: Priority) => PRIORITIES.indexOf(x);
         const names = projectNames();
-        const today = dayKey(new Date());
+        const today = dayKey(new Date(), timeZone);
         return buildTree(services.tasks.board(p))
           .filter((n) => n.status !== 'done')
           .filter((n) => projectId === undefined || n.projectId === projectId)
           .filter((n) => !args.priority || n.priority === args.priority)
           .filter((n) => !args.status || n.status === args.status)
           .filter((n) => !args.agent_state || n.agentState === args.agent_state)
-          .filter((n) => args.today === undefined || (shownDayOf(n, today) === today) === args.today)
-          .filter((n) => !args.planned_for || shownDayOf(n, today) === (args.planned_for < today ? today : args.planned_for))
+          .filter((n) => args.today === undefined || (shownDayOf(n, today, timeZone) === today) === args.today)
+          .filter((n) => !args.planned_for || shownDayOf(n, today, timeZone) === (args.planned_for < today ? today : args.planned_for))
           .filter((n) => !q || `${n.title}\n${n.notes ?? ''}`.toLowerCase().includes(q))
           .sort((a, b) => rank(a.priority) - rank(b.priority))
           .map((n) => nodeView(n, names));
@@ -317,7 +319,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
           agentState: args.for_agent ? 'ready' : undefined,
           today: args.today,
           planDate: args.plan_date,
-        });
+        }, { timeZone });
         return withSubtasks(task);
       }),
   );
@@ -349,7 +351,7 @@ export function buildMcpServer(services: Services, p: Principal, config: Config)
           ...(projectId !== undefined ? { projectId } : {}),
           ...(args.today !== undefined ? { today: args.today } : {}),
           ...(args.plan_date !== undefined ? { planDate: args.plan_date } : {}),
-        });
+        }, { timeZone });
         return withSubtasks(task);
       }),
   );

@@ -30,7 +30,7 @@ import { useDeleteTask } from '../../lib/useDeleteTask.ts';
 import { useToday } from '../../lib/useToday.ts';
 import { KeyedTitle } from '../../ui/KeyedTitle.tsx';
 import { useToast } from '../../ui/Toast.tsx';
-import { projectIcon } from '../board/project-icon.ts';
+import { projectTitle } from '../board/project-icon.ts';
 import { isWorking } from '../board/TaskCard.tsx';
 import { useEditor } from '../task-editor/EditorContext.tsx';
 import { PickSheet } from '../today/PickSheet.tsx';
@@ -672,7 +672,7 @@ function CardBody({
             (task.todayOnly ? (
               <span className="today-only">Plan only</span>
             ) : (
-              <span className="wk-where">{project ? `${projectIcon(project)} ${project.name}` : 'Inbox'}</span>
+              <span className="wk-where">{project ? projectTitle(project) : 'Inbox'}</span>
             ))}
           {carried && <span className="today-carried">from {carried}</span>}
         </div>

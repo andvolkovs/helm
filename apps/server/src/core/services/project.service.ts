@@ -9,7 +9,7 @@ import {
   type Project,
 } from '@helm/shared';
 import { ulid } from 'ulidx';
-import { assertGlobalWrite, assertRead, assertWrite, projectScope, type Principal } from '../auth/principal.ts';
+import { assertGlobalWrite, assertOwner, assertRead, assertWrite, projectScope, type Principal } from '../auth/principal.ts';
 import { notFound, parse } from '../errors.ts';
 import { mutate, type ServiceContext } from './context.ts';
 import { toProject, toTask } from './mappers.ts';
@@ -123,9 +123,9 @@ export class ProjectService {
     });
   }
 
-  /** Archive (soft delete). Its tasks stay in the DB but drop off the board. */
+  /** Archive (soft delete). Its tasks stay in the DB but drop off the board. Owner only. */
   archive(p: Principal, id: string): Project {
-    assertGlobalWrite(p);
+    assertOwner(p);
     return mutate(this.ctx, p, (tx, emit) => {
       getLiveProject(tx, id);
       const now = this.ctx.now();
@@ -146,7 +146,8 @@ export class ProjectService {
    * soft deleted like a deleted task, so they leave the board and the Done log.
    */
   remove(p: Principal, id: string): Project {
-    assertGlobalWrite(p);
+    // Owner only: this can't be undone.
+    assertOwner(p);
     return mutate(this.ctx, p, (tx, emit) => {
       const row = tx.select().from(projects).where(eq(projects.id, id)).get();
       if (!row) throw notFound('Project');

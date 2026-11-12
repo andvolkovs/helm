@@ -397,12 +397,12 @@ function SessionSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function signOut() {
+  async function signOut(everywhere = false) {
     setBusy(true);
     setError(null);
     try {
       // The session cookie is httpOnly, so only the server can end it.
-      await api.logout();
+      await (everywhere ? api.logoutAll() : api.logout());
       qc.setQueryData(keys.me, { signedIn: false });
       clearUserData(qc);
     } catch (err) {
@@ -423,8 +423,17 @@ function SessionSection() {
         </p>
       )}
       <div>
-        <button type="button" className="btn" disabled={busy} onClick={signOut}>
+        <button type="button" className="btn" disabled={busy} onClick={() => signOut()}>
           Sign out
+        </button>
+      </div>
+      <p className="field-hint">
+        Lost a phone, or signed in somewhere you shouldn’t have? This signs out every device, this one included.
+        Assistants keep their tokens.
+      </p>
+      <div>
+        <button type="button" className="btn" disabled={busy} onClick={() => signOut(true)}>
+          Sign out everywhere
         </button>
       </div>
     </section>

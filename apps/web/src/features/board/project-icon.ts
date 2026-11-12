@@ -44,3 +44,10 @@ export function projectIcon(project: { name: string; icon: string | null } | nul
   if (!project) return '📥';
   return project.icon ?? autoIcon(project.name);
 }
+
+/** A project's name with its icon in front when it has one: "🏠 Home", or just "Helm". */
+export function projectTitle(project: { name: string; icon: string | null } | null): string {
+  const icon = projectIcon(project);
+  const name = project?.name ?? 'Inbox';
+  return icon ? `${icon} ${name}` : name;
+}

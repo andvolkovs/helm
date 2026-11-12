@@ -1,19 +1,21 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import type { Services } from '../core/services/index.ts';
 import { jsonBody, timeZoneOf, type AppEnv } from './env.ts';
 
 /** REST API v1. All routes require a principal (see `authenticate`). */
 export function apiRoutes(s: Services): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  /** The caller's own zone, else the owner's last known one (agents send none). */
+  const zone = (c: Context<AppEnv>) => timeZoneOf(c) ?? s.settings.ownerZone();
 
   // ----- Tasks -----
   r.get('/tasks', (c) => c.json(s.tasks.board(c.var.principal)));
   r.get('/tasks/:id', (c) => c.json(s.tasks.get(c.var.principal, c.req.param('id'))));
   r.post('/tasks', async (c) =>
-    c.json(s.tasks.create(c.var.principal, await jsonBody(c), { timeZone: timeZoneOf(c) }), 201),
+    c.json(s.tasks.create(c.var.principal, await jsonBody(c), { timeZone: zone(c) }), 201),
   );
   r.patch('/tasks/:id', async (c) =>
-    c.json(s.tasks.update(c.var.principal, c.req.param('id'), await jsonBody(c), { timeZone: timeZoneOf(c) })),
+    c.json(s.tasks.update(c.var.principal, c.req.param('id'), await jsonBody(c), { timeZone: zone(c) })),
   );
   r.delete('/tasks/:id', (c) => c.json(s.tasks.remove(c.var.principal, c.req.param('id'))));
   r.post('/tasks/:id/move', async (c) => c.json(s.tasks.move(c.var.principal, c.req.param('id'), await jsonBody(c))));
@@ -28,7 +30,7 @@ export function apiRoutes(s: Services): Hono<AppEnv> {
     c.json(s.tasks.setAgentState(c.var.principal, c.req.param('id'), await jsonBody(c))),
   );
 
-  r.get('/focus', (c) => c.json(s.tasks.focus(c.var.principal, { timeZone: timeZoneOf(c) })));
+  r.get('/focus', (c) => c.json(s.tasks.focus(c.var.principal, { timeZone: zone(c) })));
   r.get('/done', (c) => c.json(s.tasks.doneLog(c.var.principal, c.req.query())));
 
   // ----- Projects -----

@@ -36,7 +36,14 @@ export function writeHashParams(params: URLSearchParams) {
 export function useRoute(): Route {
   const [route, setRoute] = useState(current);
   useEffect(() => {
-    const onHash = () => setRoute(current());
+    let shown = current();
+    const onHash = () => {
+      const next = current();
+      // One document holds every view, so the window would keep the last view's scroll offset.
+      if (next !== shown) window.scrollTo(0, 0);
+      shown = next;
+      setRoute(next);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);

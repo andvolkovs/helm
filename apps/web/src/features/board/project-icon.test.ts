@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoIcon, projectIcon } from './project-icon.ts';
+import { autoIcon, projectIcon, projectTitle } from './project-icon.ts';
 
 describe('project icons', () => {
   it('picks an emoji from words in the name', () => {
@@ -15,5 +15,11 @@ describe('project icons', () => {
     expect(projectIcon({ name: 'Home', icon: '🏡' })).toBe('🏡');
     expect(projectIcon({ name: 'Home', icon: null })).toBe('🏠');
     expect(projectIcon(null)).toBe('📥');
+  });
+
+  it('names a project without an icon by its name alone', () => {
+    expect(projectTitle({ name: 'Home', icon: null })).toBe('🏠 Home');
+    expect(projectTitle({ name: 'Helm', icon: null })).toBe('Helm');
+    expect(projectTitle(null)).toBe('📥 Inbox');
   });
 });

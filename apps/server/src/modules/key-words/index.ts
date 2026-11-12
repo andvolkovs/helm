@@ -81,7 +81,11 @@ export class KeyWordPicker {
 
   private soon(): void {
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.run(), this.o.delayMs);
+    // Key words are a nicety: a failure here is logged, never allowed to take the server down.
+    this.timer = setTimeout(
+      () => void this.run().catch((e: unknown) => console.error('key words: stopped unexpectedly:', e)),
+      this.o.delayMs,
+    );
     this.timer.unref?.();
   }
 

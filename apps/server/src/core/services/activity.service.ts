@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, max, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, lt, max, ne, or, sql, type SQL } from 'drizzle-orm';
 import { events, projects, tasks, type EventRow, type Tx } from '@helm/db';
 import {
   ActivityQuery,
@@ -108,6 +108,8 @@ export class ActivityService {
           if (e.entity === 'task') this.restoreTask(tx, emit, e.entityId, before as Task | null);
           else this.restoreProject(tx, emit, e.entityId, before as Project | null);
         }
+        const restored = new Set([...firsts.values()].filter((e) => e.entity === 'task').map((e) => e.entityId));
+        this.keepInProgressLimit(tx, emit, restored);
       },
       { undoOf: key },
     );
@@ -206,6 +208,35 @@ export class ActivityService {
     }
     const row = tx.update(tasks).set({ ...fields, updatedAt: now }).where(eq(tasks.id, id)).returning().get()!;
     emit({ entity: 'task', entityId: id, projectId: row.projectId, action, data: toTask(row) });
+  }
+
+  /**
+   * Undo can put a task back in progress while another one is. The limit still holds: the others
+   * are paused, oldest first, just as when a task is started. Part of the same undo, so undoing
+   * that brings them back.
+   */
+  private keepInProgressLimit(tx: Tx, emit: Emit, restored: Set<string>): void {
+    const limit = this.ctx.rules.inProgressLimit;
+    if (limit <= 0) return;
+    const active = tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.status, 'in_progress'), isNull(tasks.deletedAt)))
+      .orderBy(asc(tasks.startedAt))
+      .all();
+    if (active.length <= limit || !active.some((t) => restored.has(t.id))) return;
+    const queue = [...active.filter((t) => !restored.has(t.id)), ...active.filter((t) => restored.has(t.id))];
+    const now = this.ctx.now();
+    while (queue.length > limit) {
+      const t = queue.shift()!;
+      const row = tx
+        .update(tasks)
+        .set({ status: 'todo', startedAt: null, updatedAt: now })
+        .where(eq(tasks.id, t.id))
+        .returning()
+        .get()!;
+      emit({ entity: 'task', entityId: row.id, projectId: row.projectId, action: 'stopped', data: toTask(row) });
+    }
   }
 
   private restoreProject(tx: Tx, emit: Emit, id: string, before: Project | null): void {

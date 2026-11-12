@@ -4,7 +4,7 @@ import { formatMinutes } from '../../lib/format.ts';
 import { useProjects, useSetToday } from '../../lib/queries.ts';
 import { KeyedTitle } from '../../ui/KeyedTitle.tsx';
 import { LineInput } from '../../ui/LineInput.tsx';
-import { projectIcon } from '../board/project-icon.ts';
+import { projectTitle } from '../board/project-icon.ts';
 
 const PRIORITY_LABEL: Record<Priority, string> = { now: 'Now', soon: 'Soon', someday: 'Someday' };
 const RANK: Record<Priority, number> = { now: 0, soon: 1, someday: 2 };
@@ -89,7 +89,7 @@ export function PickSheet({ roots, day, today, mainFull, onClose }: Props) {
         )}
         {groups.map(({ project, tasks }) => (
           <section key={project?.id ?? 'inbox'}>
-            <h3 className="today-sheet-group">{project ? `${projectIcon(project)} ${project.name}` : '📥 Inbox'}</h3>
+            <h3 className="today-sheet-group">{projectTitle(project ?? null)}</h3>
             <ul className="today-sheet-list">
               {tasks.map((t) => (
                 <li key={t.id}>

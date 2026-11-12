@@ -14,6 +14,8 @@ export type Principal =
       scope: TokenScope;
       /** null = all projects (incl. Inbox); otherwise only these projects. */
       projectIds: string[] | null;
+      /** When the token stops working; open live streams end then. */
+      expiresAt?: Date | null;
     };
 
 export const OWNER: Principal = { kind: 'owner' };

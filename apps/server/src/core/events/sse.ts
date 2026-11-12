@@ -87,7 +87,11 @@ export function eventRoutes(db: Db, bus: EventBus): Hono<AppEnv> {
         await stream.writeSSE({ id: String(head), event: 'ready', data: JSON.stringify({ cursor: head }) });
       }
 
+      const expired = () => p.kind === 'token' && !!p.expiresAt && p.expiresAt.getTime() <= Date.now();
+
       while (!closed) {
+        // Checked at least every ping: a stream doesn't outlive its token.
+        if (expired()) break;
         while (queue.length > 0 && !closed) await send(queue.shift()!);
         if (closed) break;
         const woke = await Promise.race([
@@ -96,6 +100,7 @@ export function eventRoutes(db: Db, bus: EventBus): Hono<AppEnv> {
         ]);
         if (!woke && !closed) await stream.writeSSE({ event: 'ping', data: '' });
       }
+      unsubscribe();
     });
   });
 

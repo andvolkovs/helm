@@ -12,13 +12,9 @@
     <meta name="apple-mobile-web-app-title" content="Helm" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <script>
-      // Theme before first paint, so the page doesn't flash Harbor first (see src/ui/themes.ts).
-      try {
-        var theme = localStorage.getItem('helm.theme');
-        if (theme && /^[a-z]+$/.test(theme)) document.documentElement.dataset.theme = theme;
-      } catch (e) {}
-    </script>
+    <!-- Theme before first paint. A file rather than inline, so the server's content security
+         policy can refuse inline scripts altogether. -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

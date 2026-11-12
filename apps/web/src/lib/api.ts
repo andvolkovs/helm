@@ -139,6 +139,8 @@ export const api = {
   me: () => request<{ signedIn: boolean }>('GET', '/auth/me'),
   login: (password: string) => request<{ ok: true }>('POST', '/auth/login', { password }),
   logout: () => request<{ ok: true }>('POST', '/auth/logout'),
+  /** Ends the session on every device, this one included. */
+  logoutAll: () => request<{ ok: true }>('POST', '/auth/logout-all'),
 
   tasks: () => request<Task[]>('GET', '/tasks'),
   createTask: (input: CreateTaskInput) => request<Task>('POST', '/tasks', input),
