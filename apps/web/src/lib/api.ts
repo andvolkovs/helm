@@ -76,6 +76,8 @@ export interface DoneQuery {
   from?: string;
   to?: string;
   includeSubtasks?: boolean;
+  /** Words to find in titles and notes. */
+  q?: string;
   limit?: number;
   cursor?: string;
 }
@@ -149,7 +151,7 @@ export const api = {
   taskAction: (id: string, action: TaskAction) => request<Task>('POST', `/tasks/${id}/${action}`),
   moveTask: (id: string, input: MoveTaskInput) => request<Task>('POST', `/tasks/${id}/move`, input),
   setAgentState: (id: string, input: SetAgentStateInput) => request<Task>('POST', `/tasks/${id}/agent`, input),
-  done: (q: DoneQuery) => request<DoneLogPage>('GET', `/done${queryString(q)}`),
+  done: (q: DoneQuery, signal?: AbortSignal) => request<DoneLogPage>('GET', `/done${queryString(q)}`, undefined, signal),
   activity: (q: ActivityQuery) => request<ActivityPage>('GET', `/activity${queryString(q)}`),
   undo: (batchId: string) => request<{ ok: true }>('POST', `/activity/${encodeURIComponent(batchId)}/undo`),
 

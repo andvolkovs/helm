@@ -6,6 +6,7 @@ import { AssistantIcon, AssistantPanel } from '../features/assistant/AssistantPa
 import { BoardView } from '../features/board/BoardView.tsx';
 import { DoneView } from '../features/done/DoneView.tsx';
 import { FocusView } from '../features/focus/FocusView.tsx';
+import { SearchIcon, SearchPalette } from '../features/search/SearchPalette.tsx';
 import { SettingsView } from '../features/settings/SettingsView.tsx';
 import { EditorProvider, useEditor } from '../features/task-editor/EditorContext.tsx';
 import { TimerChip } from '../features/timer/TimerCard.tsx';
@@ -102,6 +103,7 @@ function Shell({ sync }: { sync: SyncState }) {
   const editor = useEditor();
   const route = useRoute();
   const [voiceOpen, setVoiceOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const assistant = useAssistant();
   useMutationErrorToasts();
 
@@ -141,12 +143,24 @@ function Shell({ sync }: { sync: SyncState }) {
     // Once, on launch.
   }, []);
 
-  // Single-key shortcuts: N new task, V voice, A assistant, B board, T today, W week, F focus, D done
-  // (not while typing or in a dialog).
+  // Ctrl/Cmd+K opens search from anywhere, typing included; pressed again it closes it. Not over
+  // another dialog. Single-key shortcuts: / search, N new task, V voice, A assistant, B board,
+  // T today, W week, F focus, D done (not while typing or in a dialog).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (searchOpen) setSearchOpen(false);
+        else if (!document.querySelector('dialog[open]')) setSearchOpen(true);
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
       if (document.querySelector('dialog[open]')) return;
+      if (e.key === '/') {
+        e.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
       if (e.key === 'n') {
         e.preventDefault();
         editor.openCreate();
@@ -168,7 +182,7 @@ function Shell({ sync }: { sync: SyncState }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editor, assistant]);
+  }, [editor, assistant, searchOpen]);
 
   return (
     <div className={`shell shell-${route}${assistant.isOpen ? ' has-assistant' : ''}`}>
@@ -212,6 +226,15 @@ function Shell({ sync }: { sync: SyncState }) {
           </a>
           <button
             className="topbar-icon"
+            onClick={() => setSearchOpen(true)}
+            aria-label="Search"
+            title="Search (Ctrl K)"
+            aria-keyshortcuts="Control+K Meta+K /"
+          >
+            <SearchIcon />
+          </button>
+          <button
+            className="topbar-icon"
             onClick={() => (assistant.isOpen ? assistant.hide() : assistant.show())}
             aria-label="Assistant"
             title="Assistant (A)"
@@ -253,6 +276,7 @@ function Shell({ sync }: { sync: SyncState }) {
         <FocusView />
       )}
       <AssistantPanel />
+      {searchOpen && <SearchPalette views={NAV} onClose={() => setSearchOpen(false)} />}
       {voiceOpen && (
         <VoiceCapture
           onResult={(r) => {

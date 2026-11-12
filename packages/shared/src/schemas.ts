@@ -201,6 +201,8 @@ export const DoneLogQuery = z.object({
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),
   includeSubtasks: z.stringbool().optional(),
+  /** Words that must each appear in the title or notes (any case). */
+  q: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
   /** Opaque `nextCursor` from the previous page. */
   cursor: z

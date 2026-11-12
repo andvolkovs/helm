@@ -41,6 +41,12 @@ export function openDb({ path, migrationsFolder = defaultMigrations }: OpenDbOpt
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
 
+  // LIKE folds case for ASCII letters only; text search compares through this instead, so
+  // "ärger" finds "Ärger". Deterministic, so SQLite may use it anywhere.
+  sqlite.function('helm_fold', { deterministic: true }, (s: unknown) =>
+    typeof s === 'string' ? s.normalize('NFC').toLowerCase() : null,
+  );
+
   const db = drizzle(sqlite, { schema });
   migrate(db, { migrationsFolder });
 

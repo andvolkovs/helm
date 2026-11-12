@@ -133,3 +133,17 @@ export function loadText(d: DayPlan, budget: number, fmt: (min: number) => strin
   if (d.minutes > budget) return { text: `${fmt(d.minutes)} · ${fmt(d.minutes - budget)} over`, over: true };
   return { text: `${fmt(d.minutes)} · room for ${fmt(budget - d.minutes)}`, over: false };
 }
+
+/**
+ * Days that fold to a slim "free" rail: nothing planned, not today, not in the past (those have
+ * their own fold). A day the user opened stays a column, and while a card is being dragged every
+ * day is a column so the Main and Secondary drop zones are there to aim at.
+ */
+export function freeDays(plan: readonly DayPlan[], opened: ReadonlySet<string>, dragging: boolean): Set<string> {
+  if (dragging) return new Set();
+  return new Set(
+    plan
+      .filter((d) => !d.isToday && !d.past && !d.main.length && !d.side.length && !d.done.length && !opened.has(d.day))
+      .map((d) => d.day),
+  );
+}

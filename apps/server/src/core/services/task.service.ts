@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, max, ne, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, max, ne, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import { projects, tasks, type TaskRow, type Tx } from '@helm/db';
 import {
@@ -109,6 +109,16 @@ export class TaskService {
         : q.projectId === INBOX
           ? isNull(tasks.projectId)
           : eq(tasks.projectId, q.projectId);
+    // Every word must be in the title or the notes, ignoring case in any script (helm_fold, see
+    // openDb). `%`, `_` and `\` typed by the user are escaped so they match themselves.
+    const words = (q.q ?? '').normalize('NFC').toLowerCase().split(/\s+/).filter(Boolean);
+    const text = words.map((w) => {
+      const pat = `%${w.replace(/[\\%_]/g, '\\$&')}%`;
+      return or(
+        sql`helm_fold(${tasks.title}) LIKE ${pat} ESCAPE '\\'`,
+        sql`helm_fold(coalesce(${tasks.notes}, '')) LIKE ${pat} ESCAPE '\\'`,
+      );
+    });
     // Keyset paging on (completed_at, id): a whole parent + subtasks can share one timestamp.
     let after: SQL | undefined;
     if (q.cursor) {
@@ -127,6 +137,7 @@ export class TaskService {
           q.from ? gte(tasks.completedAt, new Date(q.from)) : undefined,
           q.to ? lt(tasks.completedAt, new Date(q.to)) : undefined,
           project,
+          ...text,
           after,
           this.scopeFilter(p),
         ),

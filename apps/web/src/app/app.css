@@ -150,6 +150,23 @@
   height: 1.4rem;
 }
 
+/* Tablets and narrow windows: the view tabs, the icons and Add task need about 960px in one row.
+   Below that the tabs take a row of their own under the wordmark and the buttons. */
+@media (min-width: 521px) and (max-width: 959px) {
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+  }
+  .topbar-end {
+    gap: 0.75rem;
+  }
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+
 @media (max-width: 520px) {
   .topbar {
     gap: 0.6rem;
@@ -219,11 +236,36 @@
   .topbar .wordmark {
     display: none;
   }
+  /* Five tabs, the status dot and three icons (settings, search, assistant) in 375px: the icons
+     narrow but keep their full height as tap targets, and the tabs tighten a little. */
+  .topbar-end {
+    gap: 0.1rem;
+  }
+  .topbar-end > .topbar-icon:not(.voice-btn) {
+    width: 32px;
+  }
+  .nav a {
+    padding: 0 0.15rem;
+    font-size: 0.9375rem;
+  }
 }
 @media (max-width: 360px) {
   .nav a {
-    padding: 0 0.2rem;
-    font-size: 0.9375rem;
+    padding: 0 0.1rem;
+    font-size: 0.875rem;
+  }
+}
+/* 320px phones (iPhone SE, first generation). */
+@media (max-width: 340px) {
+  .topbar {
+    gap: 0.3rem;
+  }
+  .nav a {
+    padding: 0 0.05rem;
+    font-size: 0.8125rem;
+  }
+  .topbar-end > .topbar-icon:not(.voice-btn) {
+    width: 28px;
   }
 }
 

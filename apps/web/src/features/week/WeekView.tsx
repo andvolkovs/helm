@@ -38,6 +38,7 @@ import { PlanAdd } from '../today/PlanAdd.tsx';
 import { carriedFrom } from '../today/today-model.ts';
 import {
   donePlanned,
+  freeDays,
   loadText,
   mainFull,
   placement,
@@ -147,6 +148,10 @@ export function WeekView() {
   const [adding, setAdding] = useState<string | null>(null);
   const [priorities, setPriorities] = useState<ReadonlySet<Priority>>(new Set<Priority>(['now', 'soon']));
   const [dragging, setDragging] = useState<string | null>(null);
+  // Empty days the user opened with a click: they stay columns until they leave this week.
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const [justOpened, setJustOpened] = useState<string | null>(null);
+  useEffect(() => setOpened(new Set()), [offset]);
 
   const roots = useMemo(() => buildTree(tasks.data ?? []), [tasks.data]);
   const nodes = useMemo(() => new Map(roots.map((n) => [n.id, n])), [roots]);
@@ -155,6 +160,8 @@ export function WeekView() {
     [tasks.data, doneLog.data],
   );
   const plan = useMemo(() => weekPlan(roots, done, days, today), [roots, done, days, today]);
+  // Empty days fold to a rail (only side by side; on a phone a day is picked from the strip).
+  const free = useMemo(() => freeDays(plan, opened, dragging !== null), [plan, opened, dragging]);
   const shelf = useMemo(() => unplanned(roots, priorities), [roots, priorities]);
   const projectMap = useMemo(() => new Map((projects.data ?? []).map((p) => [p.id, p])), [projects.data]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -242,7 +249,9 @@ export function WeekView() {
     .map((d) =>
       folded(d)
         ? '4.75rem'
-        : d.isToday
+        : free.has(d.day)
+          ? '2.5rem'
+          : d.isToday
           ? 'minmax(0, 1.5fr)'
           : d.past
             ? 'minmax(0, 1fr)'
@@ -329,10 +338,21 @@ export function WeekView() {
             {plan.map((d) =>
               folded(d) ? (
                 <Sliver key={d.day} d={d} onOpen={() => setExpanded((s) => new Set(s).add(d.day))} />
+              ) : free.has(d.day) ? (
+                <FreeRail
+                  key={d.day}
+                  d={d}
+                  onOpen={() => {
+                    setOpened((s) => new Set(s).add(d.day));
+                    setJustOpened(d.day);
+                  }}
+                />
               ) : (
                 <DayColumn
                   key={d.day}
                   {...dayProps(d)}
+                  focusAdd={justOpened === d.day}
+                  onFocused={() => setJustOpened(null)}
                   view={view}
                   dragging={dragTask}
                   onFold={offset === 0 && d.past ? () => setExpanded((s) => new Set([...s].filter((x) => x !== d.day))) : undefined}
@@ -421,9 +441,24 @@ function DayColumn({
   view,
   dragging,
   onFold,
+  focusAdd = false,
+  onFocused,
   ...p
-}: DayProps & { view: View; dragging: TaskNode | undefined; onFold?: () => void }) {
+}: DayProps & {
+  view: View;
+  dragging: TaskNode | undefined;
+  onFold?: () => void;
+  /** Just opened from its rail: put focus on "+ Add", since the rail button is gone. */
+  focusAdd?: boolean;
+  onFocused?: () => void;
+}) {
   const { d, acts } = p;
+  const addRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!focusAdd) return;
+    addRef.current?.focus();
+    onFocused?.();
+  }, [focusAdd, onFocused]);
   const head = dayHeading(d, acts.today);
   const weekend = isWeekend(d.day);
   // A dragged task that isn't in Main here yet can't go into a full Main.
@@ -483,7 +518,7 @@ function DayColumn({
           />
         ) : (
           <div className="wk-day-foot">
-            <button type="button" className="wk-add" onClick={p.onAdd}>
+            <button type="button" className="wk-add" ref={addRef} onClick={p.onAdd}>
               + Add
             </button>
             <button type="button" className="wk-add" onClick={p.onPick}>
@@ -492,6 +527,21 @@ function DayColumn({
           </div>
         ))}
     </section>
+  );
+}
+
+/** A day with nothing planned, folded to a slim rail. Click to open it as a column. */
+function FreeRail({ d, onOpen }: { d: DayPlan; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      className="wk-rail"
+      onClick={onOpen}
+      aria-label={`${formatDay(d.day, { weekday: 'long', day: 'numeric', month: 'long' })}, nothing planned. Open`}
+    >
+      <span className="wk-rail-name">{formatDay(d.day, { weekday: 'short' })}</span>
+      <span className="wk-rail-free">free</span>
+    </button>
   );
 }
 

@@ -495,3 +495,61 @@ describe('Planning days ahead', () => {
     expect(services.tasks.get(o, t.id)).toMatchObject({ today: 'side', planDate: '2026-09-24' });
   });
 });
+
+describe('done log text filter', () => {
+  function finished(titles: Array<string | [string, string]>, projectId?: string) {
+    const { services } = setup();
+    for (const t of titles) {
+      const [title, notes] = typeof t === 'string' ? [t, undefined] : t;
+      const made = services.tasks.create(o, { title, notes, projectId });
+      services.tasks.complete(o, made.id);
+    }
+    return services;
+  }
+  const titles = (s: ReturnType<typeof setup>['services'], q: string, who = o) =>
+    s.tasks.doneLog(who, { q }).tasks.map((t) => t.title);
+
+  it('matches every word, in any case, in the title or the notes', () => {
+    const s = finished(['Pay the Electric bill', ['Call plumber', 'about the electric meter'], 'Buy milk']);
+    expect(titles(s, 'ELECTRIC').sort()).toEqual(['Call plumber', 'Pay the Electric bill']);
+    expect(titles(s, 'electric bill')).toEqual(['Pay the Electric bill']);
+    expect(titles(s, 'plumber meter')).toEqual(['Call plumber']);
+  });
+
+  it('ignores case beyond ASCII letters too', () => {
+    const s = finished(['Ärger mit Übung', 'Café visit', 'Москва trip']);
+    expect(titles(s, 'ärger')).toEqual(['Ärger mit Übung']);
+    expect(titles(s, 'ÜBUNG')).toEqual(['Ärger mit Übung']);
+    expect(titles(s, 'CAFÉ')).toEqual(['Café visit']);
+    expect(titles(s, 'москва')).toEqual(['Москва trip']);
+  });
+
+  it('returns nothing when no task matches, and everything for a blank filter', () => {
+    const s = finished(['Pay bill', 'Buy milk']);
+    expect(titles(s, 'zebra')).toEqual([]);
+    expect(titles(s, '   ')).toHaveLength(2);
+  });
+
+  it('takes %, _ and \ literally', () => {
+    const s = finished(['Save 50% on rent', 'Save 500 on rent', 'snake_case names', 'snakeXcase names', 'path C:\\temp', 'path C:Xtemp']);
+    expect(titles(s, '50%')).toEqual(['Save 50% on rent']);
+    expect(titles(s, 'snake_case')).toEqual(['snake_case names']);
+    expect(titles(s, 'C:\\temp')).toEqual(['path C:\\temp']);
+    expect(titles(s, '%')).toEqual(['Save 50% on rent']);
+  });
+
+  it('still applies a token’s project scope', () => {
+    const { services } = setup();
+    const work = services.projects.create(o, { name: 'Work' });
+    const home = services.projects.create(o, { name: 'Home' });
+    for (const [title, projectId] of [['Report for work', work.id], ['Report for home', home.id]] as const) {
+      services.tasks.complete(o, services.tasks.create(o, { title, projectId }).id);
+    }
+    expect(titles(services, 'report', token({ projectIds: [work.id] }))).toEqual(['Report for work']);
+  });
+
+  it('rejects a filter over 200 characters', () => {
+    const { services } = setup();
+    expect(errCode(() => services.tasks.doneLog(o, { q: 'x'.repeat(201) }))).toBe('invalid');
+  });
+});

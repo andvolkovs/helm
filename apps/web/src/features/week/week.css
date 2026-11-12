@@ -774,3 +774,33 @@
 .wk-move-off {
   align-self: flex-start;
 }
+
+/* A day with nothing planned, folded to a rail. It opens while a card is dragged. */
+.wk-rail {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  min-height: 24rem;
+  padding: 0.8rem 0;
+  justify-content: flex-start;
+  writing-mode: vertical-rl;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: color-mix(in oklab, var(--shallows) 22%, transparent);
+  box-shadow: inset 0 0 0 1px var(--contour-faint);
+  color: var(--ink-soft);
+}
+.wk-rail:hover {
+  background: color-mix(in oklab, var(--shallows) 55%, transparent);
+}
+.wk-rail-name {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--step-0);
+}
+.wk-rail-free {
+  font-size: var(--step--1);
+  font-weight: 700;
+  opacity: 0.8;
+}

@@ -35,6 +35,9 @@ import {
   type Columns,
 } from './board-model.ts';
 import { Bin } from './Bin.tsx';
+import { Masonry } from './Masonry.tsx';
+import { ReviewStrip } from './ReviewStrip.tsx';
+import { reviewQueue } from './review-model.ts';
 import { BoardTabs, reducedMotion, type BoardTab } from './BoardTabs.tsx';
 import { projectIcon } from './project-icon.ts';
 import { ProjectDialog } from './ProjectDialog.tsx';
@@ -77,6 +80,7 @@ export function BoardView() {
   const nodes = useMemo(() => new Map(roots.map((n) => [n.id, n])), [roots]);
   const bins = useMemo(() => [INBOX_KEY, ...(projects.data ?? []).map((p) => p.id)], [projects.data]);
   const base = useMemo(() => buildColumns(roots, bins), [roots, bins]);
+  const queue = useMemo(() => reviewQueue(tasks.data ?? []), [tasks.data]);
 
   // While dragging: live layout. After drop: hold the dropped layout until the server confirms.
   const [dragCols, setDragCols] = useState<Columns | null>(null);
@@ -254,7 +258,10 @@ export function BoardView() {
     today,
   };
 
-  const groupsFor = (bin: string) =>
+  const isCollapsed = (bin: string) =>
+    bin === INBOX_KEY ? inboxCollapsed : Boolean(projects.data?.find((p) => p.id === bin)?.collapsed);
+
+  const groupsFor =(bin: string) =>
     Object.fromEntries(PRIORITIES.map((p) => [p, cols[containerId(bin, p)] ?? []])) as Record<Priority, string[]>;
 
   const tabs: BoardTab[] = bins.map((bin) => {
@@ -279,6 +286,7 @@ export function BoardView() {
 
   return (
     <main className="board">
+      <ReviewStrip queue={queue} projects={projects.data ?? []} onOpen={(id) => editor.openEdit(id)} />
       <BoardTabs tabs={tabs} onJump={jumpTo} />
       <DndContext
         sensors={sensors}
@@ -297,31 +305,42 @@ export function BoardView() {
           },
         }}
       >
-        <div className="bins">
-          {bins.map((bin) => {
-            const project = projects.data?.find((p) => p.id === bin) ?? null;
-            return (
-              <Bin
-                key={bin}
-                bin={bin}
-                project={project}
-                projects={projects.data ?? []}
-                groups={groupsFor(bin)}
-                nodes={nodes}
-                collapsed={project ? project.collapsed : inboxCollapsed}
-                dragging={activeId !== null}
-                activeId={activeId}
-                onToggleCollapsed={() => toggleCollapsed(bin)}
-                onAdd={(priority) => editor.openCreate({ projectId: binProjectId(bin), priority })}
-                onEditProject={project ? () => setProjectDialog({ project, key: Date.now() }) : undefined}
-                {...cardActions}
-              />
-            );
-          })}
-          <button className="bin-new" onClick={() => setProjectDialog({ key: Date.now() })}>
-            New project
-          </button>
-        </div>
+        <Masonry
+          frozen={activeId !== null}
+          layoutKey={bins.map((bin) => (isCollapsed(bin) ? '1' : '0')).join('')}
+          items={[
+            ...bins.map((bin) => {
+              const project = projects.data?.find((p) => p.id === bin) ?? null;
+              return {
+                key: bin,
+                node: (
+                  <Bin
+                    bin={bin}
+                    project={project}
+                    projects={projects.data ?? []}
+                    groups={groupsFor(bin)}
+                    nodes={nodes}
+                    collapsed={project ? project.collapsed : inboxCollapsed}
+                    dragging={activeId !== null}
+                    activeId={activeId}
+                    onToggleCollapsed={() => toggleCollapsed(bin)}
+                    onAdd={(priority) => editor.openCreate({ projectId: binProjectId(bin), priority })}
+                    onEditProject={project ? () => setProjectDialog({ project, key: Date.now() }) : undefined}
+                    {...cardActions}
+                  />
+                ),
+              };
+            }),
+            {
+              key: '\0new-project',
+              node: (
+                <button className="bin-new" onClick={() => setProjectDialog({ key: Date.now() })}>
+                  New project
+                </button>
+              ),
+            },
+          ]}
+        />
 
         <DragOverlay dropAnimation={reducedMotion() ? null : undefined}>{activeTask ? <TaskCard task={activeTask} overlay {...cardActions} /> : null}</DragOverlay>
       </DndContext>

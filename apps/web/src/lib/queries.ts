@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -29,6 +30,8 @@ export const keys = {
   assistant: ['assistant'] as const,
   timer: ['timer'] as const,
   activity: ['activity'] as const,
+  /** Done tasks found by the search palette (not the log's paged shape, so its own key). */
+  found: ['found'] as const,
 };
 
 /** Queries kept on the device so the app opens with the last snapshot, even offline. */
@@ -36,7 +39,7 @@ export const PERSISTED_KEYS: readonly string[] = [keys.me[0], keys.tasks[0], key
 
 /** Signed out or session expired: drop everything cached about the board (and its persisted copy). */
 export function clearUserData(qc: QueryClient) {
-  for (const key of [keys.tasks, keys.projects, keys.done, keys.tokens, keys.timer, keys.activity]) {
+  for (const key of [keys.tasks, keys.projects, keys.done, keys.tokens, keys.timer, keys.activity, keys.found]) {
     qc.removeQueries({ queryKey: key });
   }
 }
@@ -317,4 +320,17 @@ export function setTimer(qc: QueryClient, timer: Timer) {
 export function useTimerAction<A>(fn: (arg: A) => Promise<Timer>) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: fn, onSuccess: (t) => setTimer(qc, t) });
+}
+
+/** Done tasks matching `q` (the search palette). Stale requests are cancelled as `q` changes. */
+export function useFoundDone(q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...keys.found, q],
+    queryFn: ({ signal }) => api.done({ q, limit: 5 }, signal),
+    enabled,
+    // A task finished a moment ago must show up: always ask again for a new search.
+    staleTime: 0,
+    // Keep the last answer on screen while the next one loads, so the Done group doesn't blink.
+    placeholderData: keepPreviousData,
+  });
 }

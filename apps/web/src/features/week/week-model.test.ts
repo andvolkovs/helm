@@ -1,6 +1,6 @@
 import { buildTree, type Task } from '@helm/shared';
 import { describe, expect, it } from 'vitest';
-import { donePlanned, loadText, placement, unplanned, weekDays, weekPlan, weekRange, weekTitle } from './week-model.ts';
+import { donePlanned, freeDays, loadText, placement, unplanned, weekDays, weekPlan, weekRange, weekTitle } from './week-model.ts';
 
 function task(p: Partial<Task> & { id: string }): Task {
   return {
@@ -102,5 +102,32 @@ describe('unplanned', () => {
       task({ id: 'done', status: 'done' }),
     ]);
     expect(unplanned(roots, new Set(['now', 'soon'])).map((t) => t.id)).toEqual(['now', 'soon-a']);
+  });
+});
+
+describe('freeDays', () => {
+  const plan = weekPlan(buildTree([task({ id: 'a', today: 'main', planDate: '2026-10-16' })]), [], days, today);
+
+  it('folds future days with nothing planned, but not today, planned or past days', () => {
+    // Wed is today, Thu and Sat/Sun are empty, Fri has a task, Mon/Tue are past.
+    expect([...freeDays(plan, new Set(), false)].sort()).toEqual(['2026-10-15', '2026-10-17', '2026-10-18']);
+  });
+
+  it('keeps days the user opened as columns', () => {
+    expect(freeDays(plan, new Set(['2026-10-17']), false).has('2026-10-17')).toBe(false);
+  });
+
+  it('opens every day while a card is dragged', () => {
+    expect(freeDays(plan, new Set(), true).size).toBe(0);
+  });
+
+  it('stops folding a day once it has a task', () => {
+    const next = weekPlan(
+      buildTree([task({ id: 'a', today: 'main', planDate: '2026-10-16' }), task({ id: 'b', today: 'side', planDate: '2026-10-17' })]),
+      [],
+      days,
+      today,
+    );
+    expect(freeDays(next, new Set(), false).has('2026-10-17')).toBe(false);
   });
 });

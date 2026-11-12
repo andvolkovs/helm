@@ -20,7 +20,7 @@ change it through MCP or a REST API. Changes show up everywhere at once.
   the next day, marked as such.
 - **Week**: plan the days ahead, each with its own main and secondary tasks. On a computer the
   days sit side by side: drag tasks onto a day from the shelf of unplanned ones, finished days
-  fold away, and **By time** sizes each task by its estimate against a daily budget, so an
+  fold away (so do days with nothing planned, to a slim rail that opens on a click or a drag), and **By time** sizes each task by its estimate against a daily budget, so an
   overfull day shows at a glance. On a phone, pick a day from the strip. Board cards show the
   day a task is planned for.
 - **Tasks** with notes, subtasks and an estimate; pick the project with one tap. One task is in
@@ -47,7 +47,7 @@ change it through MCP or a REST API. Changes show up everywhere at once.
   <img src="docs/screenshots/phone-voice-review.png" width="200" alt="A task drafted by voice">
 </p>
 
-Desktop keys: **N** new task, **V** voice, **A** assistant, **B** / **T** / **W** / **F** / **D** to switch views.
+Desktop keys: **Ctrl K** (or **/**) search and jump, **N** new task, **V** voice, **A** assistant, **B** / **T** / **W** / **F** / **D** to switch views.
 Type `:` and a word in any text field for emoji (`:fire` → 🔥).
 
 ## Quick start
