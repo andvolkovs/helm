@@ -7,6 +7,7 @@ import {
   dayLabel,
   filterFromParams,
   filterToParams,
+  doneHrefFor,
   rangeBounds,
   type DoneFilter,
 } from './done-model.ts';
@@ -42,13 +43,25 @@ const now = new Date(2026, 8, 24, 15, 30); // Thu 24 Sep 2026, 15:30 local
 
 describe('filter <-> hash params', () => {
   it('round-trips and drops defaults', () => {
-    const f: DoneFilter = { range: 'custom', project: 'inbox', from: '2026-09-01', to: '2026-09-10' };
+    const f: DoneFilter = { range: 'custom', project: 'inbox', from: '2026-09-01', to: '2026-09-10', q: 'tax form', task: 't1' };
     expect(filterFromParams(filterToParams(f))).toEqual(f);
     expect(filterToParams(DEFAULT_FILTER).toString()).toBe('');
   });
 
   it('ignores junk', () => {
-    expect(filterFromParams(new URLSearchParams('range=nope&from=yesterday'))).toEqual(DEFAULT_FILTER);
+    expect(filterFromParams(new URLSearchParams('range=nope&from=yesterday&q=%20%20'))).toEqual(DEFAULT_FILTER);
+    expect(filterFromParams(new URLSearchParams(`q=${'x'.repeat(300)}`)).q).toHaveLength(200);
+  });
+
+  it('links a finished task to every date, narrowed to its title', () => {
+    const href = doneHrefFor({ id: 't9', title: ' Pay & file tax ' });
+    expect(href.startsWith('#/done?')).toBe(true);
+    expect(filterFromParams(new URLSearchParams(href.split('?')[1]))).toEqual({
+      ...DEFAULT_FILTER,
+      range: 'all',
+      q: 'Pay & file tax',
+      task: 't9',
+    });
   });
 });
 

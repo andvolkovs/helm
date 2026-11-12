@@ -5,6 +5,7 @@ import { hrefFor } from '../../lib/route.ts';
 import { useToday } from '../../lib/useToday.ts';
 import { KeyedTitle } from '../../ui/KeyedTitle.tsx';
 import { projectTitle } from '../board/project-icon.ts';
+import { doneHrefFor } from '../done/done-model.ts';
 import { useEditor } from '../task-editor/EditorContext.tsx';
 import {
   buildEntries,
@@ -77,8 +78,8 @@ export function SearchPalette({ views, onClose }: { views: readonly ViewLink[]; 
   function run(e: Entry) {
     close();
     if (e.kind === 'open') editor.openEdit(e.task.id);
-    // The editor only knows tasks on the board; finished ones are in the Done log.
-    else if (e.kind === 'done') window.location.hash = hrefFor('done');
+    // The editor only knows tasks on the board; finished ones are in the Done log, narrowed to this one.
+    else if (e.kind === 'done') window.location.hash = doneHrefFor(e.task);
     else if (e.kind === 'new') editor.openCreate(e.title ? { title: e.title } : undefined);
     else window.location.hash = hrefFor(e.view.route);
   }

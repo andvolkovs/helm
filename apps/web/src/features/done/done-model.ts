@@ -18,9 +18,16 @@ export interface DoneFilter {
   /** Custom range, inclusive local dates as `yyyy-mm-dd`. */
   from: string | null;
   to: string | null;
+  /** Words that must each be in the title or notes. */
+  q: string | null;
+  /** A task to point out, e.g. the one picked in search. */
+  task: string | null;
 }
 
-export const DEFAULT_FILTER: DoneFilter = { range: 'today', project: null, from: null, to: null };
+export const DEFAULT_FILTER: DoneFilter = { range: 'today', project: null, from: null, to: null, q: null, task: null };
+
+/** The server's limit on the words filter. */
+export const DONE_QUERY_MAX = 200;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -35,6 +42,8 @@ export function filterFromParams(params: URLSearchParams): DoneFilter {
     project: params.get('project') || null,
     from: date('from'),
     to: date('to'),
+    q: params.get('q')?.trim().slice(0, DONE_QUERY_MAX) || null,
+    task: params.get('task') || null,
   };
 }
 
@@ -46,6 +55,8 @@ export function filterToParams(f: DoneFilter): URLSearchParams {
     if (f.from) params.set('from', f.from);
     if (f.to) params.set('to', f.to);
   }
+  if (f.q) params.set('q', f.q);
+  if (f.task) params.set('task', f.task);
   return params;
 }
 
@@ -121,6 +132,17 @@ export interface LogDay {
   key: string;
   entries: LogEntry[];
   estimateMinutes: number;
+}
+
+/** The Done view's address for one finished task: every date, narrowed to its title, and pointed out. */
+export function doneHrefFor(task: Pick<Task, 'id' | 'title'>): string {
+  const params = filterToParams({ ...DEFAULT_FILTER, range: 'all', q: task.title.trim().slice(0, DONE_QUERY_MAX) || null, task: task.id });
+  return `#/done?${params}`;
+}
+
+/** Whether `entry` is, or holds as a subtask, the task with `id`. */
+export function entryHolds(entry: LogEntry, id: string | null): boolean {
+  return id !== null && (entry.task.id === id || entry.subtasks.some((s) => s.id === id));
 }
 
 /**

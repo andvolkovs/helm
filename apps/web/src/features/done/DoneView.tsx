@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { INBOX, type Project, type Task } from '@helm/shared';
 import { clockTime, formatMinutes } from '../../lib/format.ts';
 import { keys, useAllProjects, useDoneLog, useTaskAction, useTasks } from '../../lib/queries.ts';
@@ -8,11 +8,13 @@ import { ProjectLabel, type ProjectMap } from '../../ui/ProjectLabel.tsx';
 import { useToast } from '../../ui/Toast.tsx';
 import { LogTabs } from '../activity/LogTabs.tsx';
 import {
+  DONE_QUERY_MAX,
   RANGES,
   RANGE_LABEL,
   buildLog,
   dayKey,
   dayLabel,
+  entryHolds,
   filterFromParams,
   filterToParams,
   rangeBounds,
@@ -42,9 +44,22 @@ export function DoneView() {
   const board = useTasks();
 
   useEffect(() => writeHashParams(filterToParams(filter)), [filter]);
+  // A link into Done while it is already open (search picks a finished task) changes only the hash.
+  useEffect(() => {
+    const onHash = () => {
+      if (window.location.hash.startsWith('#/done')) setFilter(filterFromParams(readHashParams()));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   const bounds = useMemo(() => rangeBounds(filter, today), [filter, today]);
-  const log = useDoneLog({ ...bounds, projectId: filter.project ?? undefined, includeSubtasks: true });
+  const log = useDoneLog({
+    ...bounds,
+    projectId: filter.project ?? undefined,
+    q: filter.q ?? undefined,
+    includeSubtasks: true,
+  });
 
   const projectMap: ProjectMap = useMemo(() => new Map((projects.data ?? []).map((p) => [p.id, p])), [projects.data]);
   const days = useMemo(() => {
@@ -54,7 +69,21 @@ export function DoneView() {
   }, [log.data, board.data]);
   const count = days.reduce((n, d) => n + d.entries.length, 0);
 
-  const update = (patch: Partial<DoneFilter>) => setFilter((f) => ({ ...f, ...patch }));
+  // Any other change of filter means the pointed-out task has done its job.
+  const update = useCallback(
+    (patch: Partial<DoneFilter>) => setFilter((f) => ({ ...f, task: null, ...patch })),
+    [],
+  );
+
+  // Bring the pointed-out task into view once it has loaded.
+  const pointedAt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!filter.task || pointedAt.current === filter.task || log.isPending) return;
+    const el = document.querySelector<HTMLElement>('.log-entry.is-picked');
+    if (!el) return;
+    pointedAt.current = filter.task;
+    el.scrollIntoView({ block: 'center' });
+  }, [filter.task, days, log.isPending]);
 
   return (
     <main className="log">
@@ -75,9 +104,11 @@ export function DoneView() {
         </p>
       ) : !log.isPending && count === 0 ? (
         <p className="log-empty">
-          {filter.range === 'all' && !filter.project
-            ? 'Tasks you mark done land here, with the time you finished them.'
-            : 'Try a longer range or another project.'}
+          {filter.q
+            ? 'No finished task has those words. Try fewer, or a longer range.'
+            : filter.range === 'all' && !filter.project
+              ? 'Tasks you mark done land here, with the time you finished them.'
+              : 'Try a longer range or another project.'}
         </p>
       ) : (
         days.map((day) => (
@@ -91,7 +122,7 @@ export function DoneView() {
             </h2>
             <ol className="log-entries">
               {day.entries.map((e) => (
-                <Entry key={e.task.id} entry={e} projects={projectMap} />
+                <Entry key={e.task.id} entry={e} projects={projectMap} picked={entryHolds(e, filter.task)} />
               ))}
             </ol>
           </section>
@@ -123,6 +154,26 @@ function Filters({
   const projectId = useId();
   const fromId = useId();
   const toId = useId();
+  const wordsId = useId();
+  // Typed words reach the filter (and the server) once typing pauses.
+  const [words, setWords] = useState(filter.q ?? '');
+  const sent = useRef(filter.q);
+  useEffect(() => {
+    // Follow a change from outside (a link from search), without fighting what is being typed.
+    if (filter.q !== sent.current) {
+      sent.current = filter.q;
+      setWords(filter.q ?? '');
+    }
+  }, [filter.q]);
+  useEffect(() => {
+    const q = words.trim() || null;
+    if (q === (sent.current ?? null)) return;
+    const t = setTimeout(() => {
+      sent.current = q;
+      onChange({ q });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [words, onChange]);
   const live = projects.filter((p) => !p.archivedAt);
   const archived = projects.filter((p) => p.archivedAt);
 
@@ -154,6 +205,23 @@ function Filters({
           ))}
         </div>
       </fieldset>
+
+      <div className="log-words">
+        <label htmlFor={wordsId} className="visually-hidden">
+          Words in the title or notes
+        </label>
+        <input
+          id={wordsId}
+          type="search"
+          className="log-select log-words-input"
+          placeholder="Find…"
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={DONE_QUERY_MAX}
+          value={words}
+          onChange={(e) => setWords(e.target.value)}
+        />
+      </div>
 
       <div className="log-project">
         <label htmlFor={projectId} className="visually-hidden">
@@ -210,7 +278,7 @@ function Filters({
   );
 }
 
-function Entry({ entry, projects }: { entry: LogEntry; projects: ProjectMap }) {
+function Entry({ entry, projects, picked }: { entry: LogEntry; projects: ProjectMap; picked: boolean }) {
   const { task, subtasks, partOf } = entry;
   const qc = useQueryClient();
   const action = useTaskAction();
@@ -232,7 +300,7 @@ function Entry({ entry, projects }: { entry: LogEntry; projects: ProjectMap }) {
     );
 
   return (
-    <li className="log-entry">
+    <li className={`log-entry${picked ? ' is-picked' : ''}`} aria-current={picked ? 'true' : undefined}>
       <time className="log-time" dateTime={task.completedAt!}>
         {clockTime(task.completedAt!)}
       </time>
@@ -288,7 +356,7 @@ function shortDate(key: string): string {
 }
 
 function summary(count: number, more: boolean, f: DoneFilter, projects: ProjectMap): string {
-  const where =
+  let where =
     f.project === null
       ? ''
       : f.project === INBOX
@@ -323,6 +391,7 @@ function summary(count: number, more: boolean, f: DoneFilter, projects: ProjectM
               : '';
     }
   }
+  if (f.q) where = ` matching “${f.q}”${where}`;
   if (count === 0) return f.range === 'today' ? `Nothing done${where} yet today` : `Nothing done${where}${when}`;
   return `${more ? `${count}+ tasks` : plural(count, 'task')} done${where}${when}`;
 }
