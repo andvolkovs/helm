@@ -20,8 +20,10 @@ export interface Recording {
  * Rejects with the browser's DOMException when access is denied or there's no microphone.
  */
 export async function startRecording(onLevel: (level: number) => void): Promise<Recording> {
+  // Voice processing off: on phones it puts audio in call mode, and ending that plays a
+  // hang-up tone. Nothing plays while recording, so there's no echo to cancel.
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
   });
   const mimeType = pickMimeType((t) => MediaRecorder.isTypeSupported(t));
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32_000 } : undefined);
